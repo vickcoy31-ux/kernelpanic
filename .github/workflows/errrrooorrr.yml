@@ -37,12 +37,13 @@ jobs:
           git submodule sync --recursive
           git submodule update --init --depth=1
 
-    # PERBAIKAN MUTAKHIR: MENGUNCI URL PROTON CLANG SECARA ABSOLUT
-    - name: Download Proton Clang Toolchain
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        echo "Mengunduh kompiler independen Proton Clang secara terisolasi..."
-        git clone --depth=1 "https://github.com" clang-aosp
+    # 3. TOOLCHAIN SETUP (WITH CACHE)
+    - name: Cache Android Clang
+      id: cache-clang
+      uses: actions/cache@v3
+      with:
+          path: gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
+          key: final-strike-v3-${{ env.CLANG_VERSION }}
 
     # PROSES SUNTIK PATCH ROOT RESUKISU & SUSFS ANTI ROOT-DETECTION
     - name: Setup ReSukiSU and SUSFS Patch
