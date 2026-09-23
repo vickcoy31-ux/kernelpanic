@@ -29,21 +29,23 @@ jobs:
         sudo apt-get install -y git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python2 python3
         mkdir -p $GITHUB_WORKSPACE/kernel_workspace
 
-    - name: Clone Official GKI Kernel Source
+    # 1. BLOK KLONING SUKSES PILIHANMU (100% AMAN & TERUJI)
+    - name: Clone Source & Submodules
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        # Memutus dependensi config.env secara mutlak menggunakan string URL murni
-        git clone --depth=1 "https://github.com" -b 15.0 gta9
+        git clone --depth=1 --branch 15.0 https://github.com/prabhatkrmishra/kernel_samsung_gta9.git gta9
         cd gta9
         git submodule sync --recursive
         git submodule update --init --depth=1
 
+    # 2. UNDUH PROTON CLANG MANDIRI VIA GIT CLONE (ANTI EXTRACT ERROR)
     - name: Download Proton Clang Toolchain
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        echo "Mengunduh biner kompiler Proton Clang..."
+        echo "Mengunduh kompiler independen Proton Clang..."
         git clone https://github.com --depth=1 clang-aosp
 
+    # 3. SUNTIKKAN PATCH RESUKISU & SUSFS ANTI ROOT-DETECTION
     - name: Setup ReSukiSU and SUSFS Patch
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
@@ -63,6 +65,7 @@ jobs:
            git apply "$PATCH_FILE" || echo "Patch manual fallback aman."
         fi
 
+    # 4. BYPASS TOTAL SYSTEM KEAMANAN SAMSUNG KNOX / KAP / DEFEX
     - name: Bypass Samsung Knox Security and Inject Config
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
@@ -83,6 +86,7 @@ jobs:
         echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG_PATH
         echo "CONFIG_SUSFS=y" >> $DEFCONFIG_PATH
 
+    # 5. EKSEKUSI PROSES KOMPILASI MESIN KERNEL UTAMA
     - name: Compile Kernel
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
@@ -94,6 +98,7 @@ jobs:
           CLANG_TRIPLE=aarch64-linux-gnu- \
           CROSS_COMPILE=aarch64-linux-android-
 
+    # 6. VERIFIKASI SELESAI & PENCARIAN BERKAS MATANG
     - name: Finding Image Kernel and Verify Output
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
@@ -107,6 +112,7 @@ jobs:
           exit 1
         fi
 
+    # 7. UNGGAH HASIL ZIP KERNEL YANG SUDAH TERPASANG RESUKISU
     - name: Upload Kernel Artifact
       if: env.PROSES_SUKSES == 'true'
       uses: actions/upload-artifact@v4
