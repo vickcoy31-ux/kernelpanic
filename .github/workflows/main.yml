@@ -57,7 +57,7 @@ jobs:
     - name: Clone Source Kernel GTA9
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        # Perbaikan Utama: Mengunci URL secara utuh tanpa pemotongan string string otomatis
+        # Solusi Absolut: Mengabaikan KERNEL_SOURCE dari config.env dan mengunci langsung ke repositori target gta9
         git clone --depth=1 --branch 15.0 "https://github.com" gta9
         cd gta9
         git submodule sync --recursive
