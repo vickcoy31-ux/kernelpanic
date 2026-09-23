@@ -54,28 +54,25 @@ jobs:
         sudo apt-get install -y git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python2 python3
         mkdir -p $GITHUB_WORKSPACE/kernel_workspace
 
-    - name: Clone Source Kernel GTA9
+    - name: Clone Official Target Kernel Source
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        # Solusi Absolut: Mengabaikan KERNEL_SOURCE dari config.env dan mengunci langsung ke repositori target gta9
-        git clone --depth=1 --branch 15.0 "https://github.com" gta9
-        cd gta9
-        git submodule sync --recursive
-        git submodule update --init --depth=1
+        # Clones the structurally accurate Galaxy Tab A9 tree
+        git clone --depth=1 https://github.com -b master gta9
 
     - name: Download Proton Clang Toolchain
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        echo "Mengunduh Proton Clang Mandiri Standar Android 12..."
+        echo "Downloading independent Proton Clang compiler..."
         git clone https://github.com --depth=1 clang-aosp
 
     - name: Setup ReSukiSU and SUSFS Patch
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
-        echo "Mengintegrasikan ReSukiSU..."
+        echo "Integrating ReSukiSU..."
         curl -LSs "https://githubusercontent.com" | bash -s main
         
-        echo "Mengintegrasikan SUSFS Spoil Hiding..."
+        echo "Integrating SUSFS Spoil Hiding..."
         cd $GITHUB_WORKSPACE/kernel_workspace
         git clone https://gitlab.com -b master susfs_src --depth=1
         
@@ -85,7 +82,7 @@ jobs:
         
         PATCH_FILE="$GITHUB_WORKSPACE/kernel_workspace/susfs_src/5.10/5.10.patch"
         if [ -f "$PATCH_FILE" ]; then
-           git apply "$PATCH_FILE" || echo "Patch manual aman."
+           git apply "$PATCH_FILE" || echo "Patch manual applied fallback."
         fi
 
     - name: Bypass Samsung Knox Security and Inject Config
