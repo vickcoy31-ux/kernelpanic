@@ -54,25 +54,25 @@ jobs:
         sudo apt-get install -y git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python2 python3
         mkdir -p $GITHUB_WORKSPACE/kernel_workspace
 
-    - name: Clone Official Target Kernel Source
+    - name: Clone Official GKI Kernel Source
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        # Clones the structurally accurate Galaxy Tab A9 tree
+        # Mengunduh source tree kernel resmi dengan struktur 5.10 GKI yang presisi
         git clone --depth=1 https://github.com -b master gta9
 
     - name: Download Proton Clang Toolchain
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        echo "Downloading independent Proton Clang compiler..."
+        echo "Mengunduh kompiler independen Proton Clang..."
         git clone https://github.com --depth=1 clang-aosp
 
     - name: Setup ReSukiSU and SUSFS Patch
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
-        echo "Integrating ReSukiSU..."
+        echo "Mengintegrasikan ReSukiSU..."
         curl -LSs "https://githubusercontent.com" | bash -s main
         
-        echo "Integrating SUSFS Spoil Hiding..."
+        echo "Mengintegrasikan SUSFS Spoil Hiding..."
         cd $GITHUB_WORKSPACE/kernel_workspace
         git clone https://gitlab.com -b master susfs_src --depth=1
         
@@ -82,7 +82,7 @@ jobs:
         
         PATCH_FILE="$GITHUB_WORKSPACE/kernel_workspace/susfs_src/5.10/5.10.patch"
         if [ -f "$PATCH_FILE" ]; then
-           git apply "$PATCH_FILE" || echo "Patch manual applied fallback."
+           git apply "$PATCH_FILE" || echo "Patch manual fallback aman."
         fi
 
     - name: Bypass Samsung Knox Security and Inject Config
