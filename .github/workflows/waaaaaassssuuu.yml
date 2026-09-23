@@ -30,22 +30,22 @@ jobs:
         sudo apt-get install -y git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python2 python3
         mkdir -p $GITHUB_WORKSPACE/kernel_workspace
 
+    # 2. CLONE SOURCE & SUBMODULES
     - name: Clone Source & Submodules
       run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        git clone --depth=1 --branch 15.0 https://github.com gta9
-        cd gta9
-        git submodule sync --recursive
-        git submodule update --init --depth=1
+          git clone --depth=1 --branch 15.0 https://github.com/prabhatkrmishra/kernel_samsung_gta9.git gta9
+          cd gta9
+          git submodule sync --recursive
+          git submodule update --init --depth=1
 
-    - name: Download AOSP Clang Toolchain
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        mkdir -p prebuilts-master/clang/host/linux-x86/clang-${{ env.CLANG_VERSION }}
-        # Unduh compiler resmi dari android source
-        wget -q https://googlesource.com{{ env.CLANG_VERSION }}.tar.gz
-        tar -C prebuilts-master/clang/host/linux-x86/clang-${{ env.CLANG_VERSION }}/ -xf clang-${{ env.CLANG_VERSION }}.tar.gz
-
+     # 3. TOOLCHAIN SETUP (WITH CACHE)
+    - name: Cache Android Clang
+      id: cache-clang
+      uses: actions/cache@v3
+      with:
+          path: gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
+          key: final-strike-v3-${{ env.CLANG_VERSION }}
+          
     - name: Setup ReSukiSU Patcher
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
