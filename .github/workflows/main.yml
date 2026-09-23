@@ -17,33 +17,6 @@ jobs:
         clean: false
         fetch-depth: 1
 
-    - name: Prepare Configuration
-      run: |
-        if [ -f config.env ]; then
-          while IFS= read -r line || [ -n "$line" ]; do
-            [[ "$line" =~ ^#.*$ ]] && continue
-            [[ -z "$line" ]] && continue
-            # Ignore the broken KERNEL_SOURCE variable from config.env
-            [[ "$line" == KERNEL_SOURCE* ]] && continue
-            echo "$line" >> $GITHUB_ENV
-          done < config.env
-        else
-          echo "Error: config.env tidak ditemukan!"
-          exit 1
-        fi
-
-    - name: Remove unused packages
-      if: env.REMOVE_UNUSED_PACKAGES == 'true'
-      uses: jlumbroso/free-disk-space@main
-      with:
-        tool-cache: false
-        android: false
-        dotnet: true
-        haskell: true
-        large-packages: true
-        docker-images: true
-        swap-storage: false
-
     - name: Set swap space
       uses: pierotofy/set-swap-space@master
       with:
@@ -59,7 +32,7 @@ jobs:
     - name: Clone Official GKI Kernel Source
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        # Hardcoded to bypass the config.env conflict permanently
+        # Memutus dependensi config.env secara mutlak menggunakan string URL murni
         git clone --depth=1 "https://github.com" -b 15.0 gta9
         cd gta9
         git submodule sync --recursive
@@ -68,16 +41,16 @@ jobs:
     - name: Download Proton Clang Toolchain
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        echo "Downloading independent Proton Clang compiler..."
+        echo "Mengunduh biner kompiler Proton Clang..."
         git clone https://github.com --depth=1 clang-aosp
 
     - name: Setup ReSukiSU and SUSFS Patch
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
-        echo "Integrating ReSukiSU..."
+        echo "Mengintegrasikan ReSukiSU..."
         curl -LSs "https://githubusercontent.com" | bash -s main
         
-        echo "Integrating SUSFS Spoil Hiding..."
+        echo "Mengintegrasikan SUSFS Spoil Hiding..."
         cd $GITHUB_WORKSPACE/kernel_workspace
         git clone https://gitlab.com -b master susfs_src --depth=1
         
