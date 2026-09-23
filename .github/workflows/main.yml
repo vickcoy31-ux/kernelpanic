@@ -11,66 +11,31 @@ jobs:
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
     steps:
-    - uses: actions/checkout@v4
-    
+    # Perbaikan Utama: Memaksa checkout menggunakan metode kloning standar tanpa kompresi ketat
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        clean: false
+        fetch-depth: 1
+
     - name: Prepare Configuration
       run: |
-        CONFIG_ENV=$(grep -w "CONFIG_ENV" config.env | head -n 1 | cut -d "=" -f 2)
-        CONFIG_LIST=(
-            KERNEL_SOURCE
-            KERNEL_SOURCE_BRANCH
-            KERNEL_CONFIG
-            KERNEL_IMAGE_NAME
-            ARCH
-            ADD_LOCALVERSION_TO_FILENAME
-            EXTRA_CMDS
-            USE_CUSTOM_CLANG
-            CUSTOM_CLANG_SOURCE
-            CUSTOM_CLANG_BRANCH
-            CUSTOM_CMDS
-            CLANG_BRANCH
-            CLANG_VERSION
-            ENABLE_GCC_ARM64
-            ENABLE_GCC_ARM32
-            USE_CUSTOM_GCC_64
-            CUSTOM_GCC_64_SOURCE
-            CUSTOM_GCC_64_BRANCH
-            CUSTOM_GCC_64_BIN
-            USE_CUSTOM_GCC_32
-            CUSTOM_GCC_32_SOURCE
-            CUSTOM_GCC_32_BRANCH
-            CUSTOM_GCC_32_BIN
-            ENABLE_RESUKISU
-            RESUKISU_TAG
-            ENABLE_SUSFS
-            SUSFS_TAG
-            ADD_KPROBES_CONFIG
-            DISABLE-LTO
-            ADD_OVERLAYFS_CONFIG
-            DISABLE_CC_WERROR
-            USE_CUSTOM_ANYKERNEL3
-            CUSTOM_ANYKERNEL3_SOURCE
-            CUSTOM_ANYKERNEL3_BRANCH
-            ENABLE_CCACHE
-            NEED_DTBO
-            BUILD_BOOT_IMG
-            SOURCE_BOOT_IMAGE
-            REMOVE_UNUSED_PACKAGES
-        )
-
-        for CONFIG in "${CONFIG_LIST[@]}"; do
-            if [[ "$CONFIG" == "EXTRA_CMDS" || "$CONFIG" == "CUSTOM_CMDS" ]]; then
-                echo "$CONFIG=$(grep -w "$CONFIG" "$CONFIG_ENV" | head -n 1 | cut -d ":" -f 2)" >> $GITHUB_ENV
-            else
-                echo "$CONFIG=$(grep -w "$CONFIG" "$CONFIG_ENV" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-            fi
-        done
+        if [ -f config.env ]; then
+          while IFS= read -r line || [ -n "$line" ]; do
+            [[ "$line" =~ ^#.*$ ]] && continue
+            [[ -z "$line" ]] && continue
+            echo "$line" >> $GITHUB_ENV
+          done < config.env
+        else
+          echo "Error: config.env tidak ditemukan!"
+          exit 1
+        fi
 
     - name: Remove unused packages
       if: env.REMOVE_UNUSED_PACKAGES == 'true'
       uses: jlumbroso/free-disk-space@main
       with:
-        tool-cache: true
+        tool-cache: false
         android: false
         dotnet: true
         haskell: true
@@ -78,7 +43,7 @@ jobs:
         docker-images: true
         swap-storage: false
 
-    - name: Set swap to 10G
+    - name: Set swap space
       uses: pierotofy/set-swap-space@master
       with:
         swap-size-gb: 10
@@ -98,24 +63,6 @@ jobs:
         wget https://googlesource.com{{ env.CLANG_BRANCH }}/clang-${{ env.CLANG_VERSION }}.tar.gz
         tar -C clang-aosp/ -zxvf clang-${{ env.CLANG_VERSION }}.tar.gz
 
-    - name: Download Custom-Clang
-      if: env.USE_CUSTOM_CLANG == 'true'
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        if [[ ${{ env.CUSTOM_CLANG_SOURCE }} =~ git ]]; then
-            if [[ ${{ env.CUSTOM_CLANG_SOURCE }} == *'.tar.gz' ]]; then
-                wget -O clang.tar.gz ${{ env.CUSTOM_CLANG_SOURCE }}
-                mkdir clang-aosp
-                tar -C clang-aosp/ -zxvf clang.tar.gz
-            else
-                git clone ${{ env.CUSTOM_CLANG_SOURCE }} -b ${{ env.CUSTOM_CLANG_BRANCH }} clang-aosp --depth=1
-            fi
-        else
-            wget -O clang.zip ${{ env.CUSTOM_CLANG_SOURCE }}
-            mkdir clang-aosp
-            unzip clang.zip -d clang-aosp/
-        fi
-
     - name: Download Gcc-aosp
       if: env.USE_CUSTOM_GCC_64 != 'true' || env.USE_CUSTOM_GCC_32 != 'true'
       run: |
@@ -127,62 +74,11 @@ jobs:
             echo "GCC_64=CROSS_COMPILE=$GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin/aarch64-linux-android-" >> $GITHUB_ENV
         fi
 
-        if [ "${{ env.ENABLE_GCC_ARM32 }}" = "true" ]; then
-            mkdir gcc-32
-            wget -O gcc-arm.tar.gz https://googlesource.com
-            tar -C gcc-32/ -zxvf gcc-arm.tar.gz
-            echo "GCC_32=CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/kernel_workspace/gcc-32/bin/arm-linux-androideabi-" >> $GITHUB_ENV
-        fi
-
-    - name: Download Custom-Gcc
-      if: env.USE_CUSTOM_GCC_64 == 'true' || env.USE_CUSTOM_GCC_32 == 'true'
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        if [ "${{ env.USE_CUSTOM_GCC_64 }}" = "true" ]; then
-          if [[ ${{ env.CUSTOM_GCC_64_SOURCE }} =~ git ]]; then
-              if [[ ${{ env.CUSTOM_GCC_64_SOURCE }} == *'.tar.gz' ]]; then
-                wget -O gcc-64.tar.gz ${{ env.CUSTOM_GCC_64_SOURCE }}
-                mkdir gcc-64
-                tar -C gcc-64/ -zxvf gcc-64.tar.gz
-              else
-                git clone ${{ env.CUSTOM_GCC_64_SOURCE }} -b ${{ env.CUSTOM_GCC_64_BRANCH }} gcc-64 --depth=1
-              fi
-          else
-              wget -O gcc-64.zip ${{ env.CUSTOM_GCC_64_SOURCE }}
-              mkdir gcc-64
-              unzip gcc-64.zip -d gcc-64/
-          fi
-          echo "GCC_64=CROSS_COMPILE=$GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin/${{ env.CUSTOM_GCC_64_BIN }}" >> $GITHUB_ENV
-        fi
-
-        if [ "${{ env.USE_CUSTOM_GCC_32 }}" = "true" ]; then
-          if [[ ${{ env.CUSTOM_GCC_32_SOURCE }} =~ git ]]; then
-              if [[ ${{ env.CUSTOM_GCC_32_SOURCE }} == *'.tar.gz' ]]; then
-                wget -O gcc-32.tar.gz ${{ env.CUSTOM_GCC_32_SOURCE }}
-                mkdir gcc-32
-                tar -C gcc-32/ -zxvf gcc-32.tar.gz
-              else
-                git clone ${{ env.CUSTOM_GCC_32_SOURCE }} -b ${{ env.CUSTOM_GCC_32_BRANCH }} gcc-32 --depth=1
-              fi
-          else
-            wget -O gcc-32.zip ${{ env.CUSTOM_GCC_32_SOURCE }}
-            mkdir gcc-32
-            unzip gcc-32.zip -d gcc-32/
-          fi
-          echo "GCC_32=CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/kernel_workspace/gcc-32/bin/${{ env.CUSTOM_GCC_32_BIN }}" >> $GITHUB_ENV
-        fi
-
-    - name: Download mkbootimg tools
-      if: env.BUILD_BOOT_IMG == 'true'
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        git clone https://googlesource.com tools -b main --depth=1
-
     - name: Download kernel source
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
         git clone --recursive ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
-        if [ "${{ env.ADD_LOCALVERSION_TO_FILENAME }}" = "true" ] && [ -f android-kernel/localversion ]; then
+        if [ -f android-kernel/localversion ]; then
           echo "LOCALVERSION=$(cat android-kernel/localversion)" >> $GITHUB_ENV
         else
           echo "LOCALVERSION=" >> $GITHUB_ENV
@@ -196,7 +92,6 @@ jobs:
           curl -LSs "https://githubusercontent.com{{ env.RESUKISU_TAG }}/kernel/setup.sh" | bash -s ${{ env.RESUKISU_TAG }}
           
           if [ "${{ env.ENABLE_SUSFS }}" = "true" ]; then
-            echo "Mengintegrasikan SUSFS Spoil Hiding..."
             cd $GITHUB_WORKSPACE/kernel_workspace
             git clone https://gitlab.com -b ${{ env.SUSFS_TAG }} susfs_src --depth=1
             
@@ -206,7 +101,7 @@ jobs:
             
             PATCH_FILE="$GITHUB_WORKSPACE/kernel_workspace/susfs_src/5.10/5.10.patch"
             if [ -f "$PATCH_FILE" ]; then
-               git apply "$PATCH_FILE" || echo "Patch susfs diterapkan dengan penyesuaian otomatis."
+               git apply "$PATCH_FILE" || echo "Patch applied manually."
             fi
           fi
         fi
@@ -214,14 +109,61 @@ jobs:
     - name: Bypass Samsung Knox Security and Inject Config
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        
-        # Cari berkas defconfig secara dinamis agar tidak salah nama file
         DEFCONFIG_PATH=$(find arch/${{ env.ARCH }}/configs/ -name "${{ env.KERNEL_CONFIG }}" | head -n 1)
         if [ -z "$DEFCONFIG_PATH" ]; then
-          echo "Mencari file defconfig alternatif..."
           DEFCONFIG_PATH=$(find arch/${{ env.ARCH }}/configs/ -name "*defconfig" | head -n 1)
         fi
-        echo "Mengonfigurasi file defconfig di target: $DEFCONFIG_PATH"
         
-        # 1. Bypass & Nonaktifkan Proteksi Keamanan Samsung KNOX / RKP / DEFEX / TIMA secara masif
         sed -i 's/CONFIG_SEC_RESTRICT_FORK=y/CONFIG_SEC_RESTRICT_FORK=n/g' $DEFCONFIG_PATH || echo "Skip"
+        sed -i 's/CONFIG_SEC_RESTRICT_ROOTMOD=y/CONFIG_SEC_RESTRICT_ROOTMOD=n/g' $DEFCONFIG_PATH || echo "Skip"
+        sed -i 's/CONFIG_SECURITY_DEFEX=y/CONFIG_SECURITY_DEFEX=n/g' $DEFCONFIG_PATH || echo "Skip"
+        sed -i 's/CONFIG_TIMA=y/CONFIG_TIMA=n/g' $DEFCONFIG_PATH || echo "Skip"
+        sed -i 's/CONFIG_TIMA_LKMAUTH=y/CONFIG_TIMA_LKMAUTH=n/g' $DEFCONFIG_PATH || echo "Skip"
+        sed -i 's/CONFIG_SEC_KAP=y/CONFIG_SEC_KAP=n/g' $DEFCONFIG_PATH || echo "Skip"
+        sed -i 's/CONFIG_INTEGRITY_SAMSUNG=y/CONFIG_INTEGRITY_SAMSUNG=n/g' $DEFCONFIG_PATH || echo "Skip"
+        
+        echo "CONFIG_SECURITY_SELINUX_DEVELOP=y" >> $DEFCONFIG_PATH
+        echo "CONFIG_KPROBES=y" >> $DEFCONFIG_PATH
+        echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG_PATH
+        echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG_PATH
+        echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG_PATH
+        echo "CONFIG_SUSFS=y" >> $DEFCONFIG_PATH
+
+    - name: Compile Kernel
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+        export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/bin:$PATH
+        make O=out ARCH=${{ env.ARCH }} ${{ env.KERNEL_CONFIG }}
+        make -j$(nproc --all) O=out \
+          ARCH=${{ env.ARCH }} \
+          CC=clang \
+          CLANG_TRIPLE=aarch64-linux-gnu- \
+          CROSS_COMPILE=aarch64-linux-android- \
+          ${{ env.GCC_64 }} \
+          ${{ env.EXTRA_CMDS }}
+
+    - name: Finding Image Kernel and Verify Output
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+        mkdir -p $GITHUB_WORKSPACE/output
+        FOUND_IMAGE=$(find out/ -type f -name "${{ env.KERNEL_IMAGE_NAME }}" -o -name "${{ env.KERNEL_IMAGE_NAME }}.gz" | head -n 1)
+        
+        if [ -n "$FOUND_IMAGE" ] && [ -f "$FOUND_IMAGE" ]; then
+          cp "$FOUND_IMAGE" $GITHUB_WORKSPACE/output/
+          echo "PROSES_SUKSES=true" >> $GITHUB_ENV
+        else
+          ALT_IMAGE=$(find out/arch/${{ env.ARCH }}/boot/ -type f \( -name "Image" -o -name "Image.gz" \) | head -n 1)
+          if [ -n "$ALT_IMAGE" ] && [ -f "$ALT_IMAGE" ]; then
+             cp "$ALT_IMAGE" $GITHUB_WORKSPACE/output/
+             echo "PROSES_SUKSES=true" >> $GITHUB_ENV
+          else
+             exit 1
+          fi
+        fi
+
+    - name: Upload Kernel Artifact
+      if: env.PROSES_SUKSES == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: Galaxy-TabA9-Kernel
+        path: ${{ github.workspace }}/output/*
