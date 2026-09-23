@@ -57,8 +57,8 @@ jobs:
     - name: Clone Source Kernel GTA9
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        # Mengunduh source kernel Galaxy Tab A9 yang siap pakai dengan submodule
-        git clone --depth=1 --branch 15.0 https://github.com gta9
+        # Perbaikan Utama: Mengunci URL secara utuh tanpa pemotongan string string otomatis
+        git clone --depth=1 --branch 15.0 "https://github.com" gta9
         cd gta9
         git submodule sync --recursive
         git submodule update --init --depth=1
@@ -67,7 +67,6 @@ jobs:
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
         echo "Mengunduh Proton Clang Mandiri Standar Android 12..."
-        # Menggunakan Git Clone murni agar 100% aman dari error kompresi tar/gzip
         git clone https://github.com --depth=1 clang-aosp
 
     - name: Setup ReSukiSU and SUSFS Patch
