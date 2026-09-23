@@ -58,8 +58,8 @@ jobs:
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
         mkdir clang-aosp
-        echo "Mengunduh toolchain Clang secara langsung tanpa variabel environment..."
-        # Mengunci URL Clang resmi AOSP r450784d sebagai teks murni agar terhindar dari pemotongan kurung kurawal
+        echo "Mengunduh biner asli Clang AOSP secara langsung..."
+        # Mengunci URL arsip biner penuh agar terhindar dari pengalihan web HTML sepihak
         wget -O clang.tar.gz "https://googlesource.com"
         tar -C clang-aosp/ -zxvf clang.tar.gz
 
@@ -76,7 +76,6 @@ jobs:
     - name: Download kernel source
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        # Membaca jalur source kernel Samsung Galaxy Tab A9 secara aman
         git clone --recursive https://github.com -b master android-kernel --depth=1
         if [ -f android-kernel/localversion ]; then
           echo "LOCALVERSION=$(cat android-kernel/localversion)" >> $GITHUB_ENV
@@ -87,7 +86,7 @@ jobs:
     - name: Setup ReSukiSU and SUSFS Patch
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        echo "Mengintegrasikan ReSukiSU dari server utama..."
+        echo "Mengintegrasikan ReSukiSU..."
         curl -LSs "https://githubusercontent.com" | bash -s main
         
         echo "Mengintegrasikan SUSFS Spoil Hiding..."
@@ -132,8 +131,7 @@ jobs:
           ARCH=arm64 \
           CC=clang \
           CLANG_TRIPLE=aarch64-linux-gnu- \
-          CROSS_COMPILE=aarch64-linux-android- \
-          CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin/aarch64-linux-android-
+          CROSS_COMPILE=aarch64-linux-android-
 
     - name: Finding Image Kernel and Verify Output
       run: |
