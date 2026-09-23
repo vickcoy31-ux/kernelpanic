@@ -11,7 +11,6 @@ jobs:
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
     steps:
-    # Perbaikan Utama: Memaksa checkout menggunakan metode kloning standar tanpa kompresi ketat
     - name: Checkout Repository
       uses: actions/checkout@v4
       with:
@@ -56,18 +55,18 @@ jobs:
         mkdir -p $GITHUB_WORKSPACE/kernel_workspace
 
     - name: Download Clang-aosp
-      if: env.USE_CUSTOM_CLANG != 'true'
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
         mkdir clang-aosp
-        wget https://googlesource.com{{ env.CLANG_BRANCH }}/clang-${{ env.CLANG_VERSION }}.tar.gz
-        tar -C clang-aosp/ -zxvf clang-${{ env.CLANG_VERSION }}.tar.gz
+        echo "Mengunduh toolchain Clang secara langsung tanpa variabel environment..."
+        # Mengunci URL Clang resmi AOSP r450784d sebagai teks murni agar terhindar dari pemotongan kurung kurawal
+        wget -O clang.tar.gz "https://googlesource.com"
+        tar -C clang-aosp/ -zxvf clang.tar.gz
 
     - name: Download Gcc-aosp
-      if: env.USE_CUSTOM_GCC_64 != 'true' || env.USE_CUSTOM_GCC_32 != 'true'
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        if [ "${{ env.ENABLE_GCC_ARM64 }}" = "true" ]; then
+        if [ "${ENABLE_GCC_ARM64}" = "true" ]; then
             mkdir gcc-64
             wget -O gcc-aarch64.tar.gz https://googlesource.com
             tar -C gcc-64/ -zxvf gcc-aarch64.tar.gz
@@ -77,7 +76,8 @@ jobs:
     - name: Download kernel source
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        git clone --recursive ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
+        # Membaca jalur source kernel Samsung Galaxy Tab A9 secara aman
+        git clone --recursive https://github.com -b master android-kernel --depth=1
         if [ -f android-kernel/localversion ]; then
           echo "LOCALVERSION=$(cat android-kernel/localversion)" >> $GITHUB_ENV
         else
@@ -87,32 +87,26 @@ jobs:
     - name: Setup ReSukiSU and SUSFS Patch
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        if [ "${{ env.ENABLE_RESUKISU }}" = "true" ]; then
-          echo "Mengintegrasikan ReSukiSU..."
-          curl -LSs "https://githubusercontent.com{{ env.RESUKISU_TAG }}/kernel/setup.sh" | bash -s ${{ env.RESUKISU_TAG }}
-          
-          if [ "${{ env.ENABLE_SUSFS }}" = "true" ]; then
-            cd $GITHUB_WORKSPACE/kernel_workspace
-            git clone https://gitlab.com -b ${{ env.SUSFS_TAG }} susfs_src --depth=1
-            
-            cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-            cp $GITHUB_WORKSPACE/kernel_workspace/susfs_src/kernel/include/linux/susfs.h include/linux/
-            cp $GITHUB_WORKSPACE/kernel_workspace/susfs_src/kernel/fs/susfs.c fs/
-            
-            PATCH_FILE="$GITHUB_WORKSPACE/kernel_workspace/susfs_src/5.10/5.10.patch"
-            if [ -f "$PATCH_FILE" ]; then
-               git apply "$PATCH_FILE" || echo "Patch applied manually."
-            fi
-          fi
+        echo "Mengintegrasikan ReSukiSU dari server utama..."
+        curl -LSs "https://githubusercontent.com" | bash -s main
+        
+        echo "Mengintegrasikan SUSFS Spoil Hiding..."
+        cd $GITHUB_WORKSPACE/kernel_workspace
+        git clone https://gitlab.com -b master susfs_src --depth=1
+        
+        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+        cp $GITHUB_WORKSPACE/kernel_workspace/susfs_src/kernel/include/linux/susfs.h include/linux/
+        cp $GITHUB_WORKSPACE/kernel_workspace/susfs_src/kernel/fs/susfs.c fs/
+        
+        PATCH_FILE="$GITHUB_WORKSPACE/kernel_workspace/susfs_src/5.10/5.10.patch"
+        if [ -f "$PATCH_FILE" ]; then
+           git apply "$PATCH_FILE" || echo "Patch manual aman."
         fi
 
     - name: Bypass Samsung Knox Security and Inject Config
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        DEFCONFIG_PATH=$(find arch/${{ env.ARCH }}/configs/ -name "${{ env.KERNEL_CONFIG }}" | head -n 1)
-        if [ -z "$DEFCONFIG_PATH" ]; then
-          DEFCONFIG_PATH=$(find arch/${{ env.ARCH }}/configs/ -name "*defconfig" | head -n 1)
-        fi
+        DEFCONFIG_PATH="arch/arm64/configs/gta9_open_defconfig"
         
         sed -i 's/CONFIG_SEC_RESTRICT_FORK=y/CONFIG_SEC_RESTRICT_FORK=n/g' $DEFCONFIG_PATH || echo "Skip"
         sed -i 's/CONFIG_SEC_RESTRICT_ROOTMOD=y/CONFIG_SEC_RESTRICT_ROOTMOD=n/g' $DEFCONFIG_PATH || echo "Skip"
@@ -133,32 +127,25 @@ jobs:
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
         export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/bin:$PATH
-        make O=out ARCH=${{ env.ARCH }} ${{ env.KERNEL_CONFIG }}
+        make O=out ARCH=arm64 gta9_open_defconfig
         make -j$(nproc --all) O=out \
-          ARCH=${{ env.ARCH }} \
+          ARCH=arm64 \
           CC=clang \
           CLANG_TRIPLE=aarch64-linux-gnu- \
           CROSS_COMPILE=aarch64-linux-android- \
-          ${{ env.GCC_64 }} \
-          ${{ env.EXTRA_CMDS }}
+          CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/kernel_workspace/gcc-64/bin/aarch64-linux-android-
 
     - name: Finding Image Kernel and Verify Output
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
         mkdir -p $GITHUB_WORKSPACE/output
-        FOUND_IMAGE=$(find out/ -type f -name "${{ env.KERNEL_IMAGE_NAME }}" -o -name "${{ env.KERNEL_IMAGE_NAME }}.gz" | head -n 1)
+        FOUND_IMAGE=$(find out/arch/arm64/boot/ -type f \( -name "Image" -o -name "Image.gz" \) | head -n 1)
         
         if [ -n "$FOUND_IMAGE" ] && [ -f "$FOUND_IMAGE" ]; then
           cp "$FOUND_IMAGE" $GITHUB_WORKSPACE/output/
           echo "PROSES_SUKSES=true" >> $GITHUB_ENV
         else
-          ALT_IMAGE=$(find out/arch/${{ env.ARCH }}/boot/ -type f \( -name "Image" -o -name "Image.gz" \) | head -n 1)
-          if [ -n "$ALT_IMAGE" ] && [ -f "$ALT_IMAGE" ]; then
-             cp "$ALT_IMAGE" $GITHUB_WORKSPACE/output/
-             echo "PROSES_SUKSES=true" >> $GITHUB_ENV
-          else
-             exit 1
-          fi
+          exit 1
         fi
 
     - name: Upload Kernel Artifact
