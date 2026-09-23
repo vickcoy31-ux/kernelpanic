@@ -23,6 +23,8 @@ jobs:
           while IFS= read -r line || [ -n "$line" ]; do
             [[ "$line" =~ ^#.*$ ]] && continue
             [[ -z "$line" ]] && continue
+            # Ignore the broken KERNEL_SOURCE variable from config.env
+            [[ "$line" == KERNEL_SOURCE* ]] && continue
             echo "$line" >> $GITHUB_ENV
           done < config.env
         else
@@ -57,22 +59,25 @@ jobs:
     - name: Clone Official GKI Kernel Source
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        # Mengunduh source tree kernel resmi dengan struktur 5.10 GKI yang presisi
-        git clone --depth=1 https://github.com -b master gta9
+        # Hardcoded to bypass the config.env conflict permanently
+        git clone --depth=1 "https://github.com" -b 15.0 gta9
+        cd gta9
+        git submodule sync --recursive
+        git submodule update --init --depth=1
 
     - name: Download Proton Clang Toolchain
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        echo "Mengunduh kompiler independen Proton Clang..."
+        echo "Downloading independent Proton Clang compiler..."
         git clone https://github.com --depth=1 clang-aosp
 
     - name: Setup ReSukiSU and SUSFS Patch
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
-        echo "Mengintegrasikan ReSukiSU..."
+        echo "Integrating ReSukiSU..."
         curl -LSs "https://githubusercontent.com" | bash -s main
         
-        echo "Mengintegrasikan SUSFS Spoil Hiding..."
+        echo "Integrating SUSFS Spoil Hiding..."
         cd $GITHUB_WORKSPACE/kernel_workspace
         git clone https://gitlab.com -b master susfs_src --depth=1
         
