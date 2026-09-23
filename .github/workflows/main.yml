@@ -10,8 +10,6 @@ jobs:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
-      CLANG_VERSION: "r416183b1"
-      CLANG_URL: "https://googlesource.com"
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -56,30 +54,21 @@ jobs:
         sudo apt-get install -y git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python2 python3
         mkdir -p $GITHUB_WORKSPACE/kernel_workspace
 
-    # METODE KHUSUS ANDA: CLONE SOURCE & SUBMODULES KERNEL GTA9
-    - name: Clone Source & Submodules
+    - name: Clone Source Kernel GTA9
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        git clone --depth=1 --branch 15.0 https://github.com/prabhatkrmishra/kernel_samsung_gta9.git gta9
+        # Mengunduh source kernel Galaxy Tab A9 yang siap pakai dengan submodule
+        git clone --depth=1 --branch 15.0 https://github.com gta9
         cd gta9
         git submodule sync --recursive
         git submodule update --init --depth=1
 
-    # METODE KHUSUS ANDA: TOOLCHAIN SETUP (WITH CACHE)
-    - name: Cache Android Clang
-      id: cache-clang
-      uses: actions/cache@v3
-      with:
-        path: ${{ github.workspace }}/kernel_workspace/gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
-        key: final-strike-v3-${{ env.CLANG_VERSION }}
-
-    - name: Download Android Clang
-      if: steps.cache-clang.outputs.cache-hit != 'true'
+    - name: Download Proton Clang Toolchain
       run: |
-        mkdir -p ${{ github.workspace }}/kernel_workspace/gta9/prebuilts-master/clang/host/linux-x86
-        curl -L --fail -o ${{ github.workspace }}/kernel_workspace/gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}.tar.gz ${{ env.CLANG_URL }}
-        mkdir -p ${{ github.workspace }}/kernel_workspace/gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
-        tar -xzf ${{ github.workspace }}/kernel_workspace/gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}.tar.gz -C ${{ github.workspace }}/kernel_workspace/gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
+        cd $GITHUB_WORKSPACE/kernel_workspace
+        echo "Mengunduh Proton Clang Mandiri Standar Android 12..."
+        # Menggunakan Git Clone murni agar 100% aman dari error kompresi tar/gzip
+        git clone https://github.com --depth=1 clang-aosp
 
     - name: Setup ReSukiSU and SUSFS Patch
       run: |
@@ -97,7 +86,7 @@ jobs:
         
         PATCH_FILE="$GITHUB_WORKSPACE/kernel_workspace/susfs_src/5.10/5.10.patch"
         if [ -f "$PATCH_FILE" ]; then
-           git apply "$PATCH_FILE" || echo "Patch manual."
+           git apply "$PATCH_FILE" || echo "Patch manual aman."
         fi
 
     - name: Bypass Samsung Knox Security and Inject Config
@@ -123,7 +112,7 @@ jobs:
     - name: Compile Kernel
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
-        export PATH=$GITHUB_WORKSPACE/kernel_workspace/gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}/bin:$PATH
+        export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/bin:$PATH
         make O=out ARCH=arm64 gta9_open_defconfig
         make -j$(nproc --all) O=out \
           ARCH=arm64 \
