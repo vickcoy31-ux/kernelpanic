@@ -32,11 +32,10 @@ jobs:
     # PENGGUNAAN METODE KLONING UTAMA ANDA YANG SUDAH TERBUKTI 100% SUKSES
     - name: Clone Source & Submodules
       run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        git clone --depth=1 --branch 15.0 https://github.com gta9
-        cd gta9
-        git submodule sync --recursive
-        git submodule update --init --depth=1
+        git clone --depth=1 --branch 15.0 https://github.com/prabhatkrmishra/kernel_samsung_gta9.git gta9
+          cd gta9
+          git submodule sync --recursive
+          git submodule update --init --depth=1
 
     # PERBAIKAN MUTAKHIR: MENGUNCI URL PROTON CLANG SECARA ABSOLUT
     - name: Download Proton Clang Toolchain
