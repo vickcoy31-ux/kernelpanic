@@ -1,3 +1,4 @@
+
 name: BuiKern SGTA9
 
 on:
@@ -12,22 +13,20 @@ jobs:
       ARCH: arm64
       SUBARCH: arm64
 
-      # Workspace
       WORKSPACE: ${{ github.workspace }}/kernel_workspace
       KERNEL_DIR: ${{ github.workspace }}/kernel_workspace/gta9
       OUT_DIR: ${{ github.workspace }}/kernel_workspace/gta9/out
 
-      # Samsung GTA9 source
       KERNEL_REPO: https://github.com/prabhatkrmishra/kernel_samsung_gta9.git
-      KERNEL_BRANCH: 15.0
 
-      # Android Clang used by the original Samsung/AOSP build environment
+      # PENTING: branch yang benar adalah 15.0
+      KERNEL_BRANCH: "15.0"
+
+      # PENTING: defconfig yang benar di branch 15.0
+      DEFCONFIG: "gta9_defconfig"
+
       CLANG_VERSION: r416183b
 
-      # GTA9 is a 5.10 device tree.
-      # We try the Android 13 SUSFS branch first because Tab A9 originally shipped
-      # on an Android 13 generation kernel. If it does not apply cleanly,
-      # the workflow keeps building without SUSFS.
       SUSFS_BRANCH: gki-android13-5.10
 
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
@@ -36,26 +35,26 @@ jobs:
 
     steps:
 
-      # ============================================================
-      # 1. CHECKOUT WORKFLOW REPOSITORY
-      # ============================================================
+      # ==========================================================
+      # 1. CHECKOUT
+      # ==========================================================
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           clean: false
           fetch-depth: 1
 
-      # ============================================================
+      # ==========================================================
       # 2. SWAP
-      # ============================================================
+      # ==========================================================
       - name: Set swap space
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 12
 
-      # ============================================================
+      # ==========================================================
       # 3. HOST DEPENDENCIES
-      # ============================================================
+      # ==========================================================
       - name: Setup build kernel environment
         shell: bash
         run: |
@@ -97,10 +96,8 @@ jobs:
             zlib1g-dev \
             device-tree-compiler \
             python3 \
-            python3-pip \
             perl \
             cpio \
-            kmod \
             dwarves \
             pkg-config \
             gcc-aarch64-linux-gnu \
@@ -112,16 +109,14 @@ jobs:
 
           echo "===== HOST ====="
           uname -a
-          echo
-          echo "===== GCC ====="
-          gcc --version | head -n 1
+
           echo
           echo "===== AARCH64 GCC ====="
           aarch64-linux-gnu-gcc --version | head -n 1
 
-      # ============================================================
+      # ==========================================================
       # 4. CCACHE
-      # ============================================================
+      # ==========================================================
       - name: Restore ccache
         uses: actions/cache@v4
         with:
@@ -143,19 +138,27 @@ jobs:
 
           echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
 
-          echo "===== CCACHE ====="
           ccache --show-config
           ccache --show-stats || true
 
-      # ============================================================
+      # ==========================================================
       # 5. CLONE KERNEL SOURCE
-      # ============================================================
-      - name: Clone Source & Submodules
+      # ==========================================================
+      - name: Clone Source & Verify GTA9 Tree
         shell: bash
         run: |
           set -euxo pipefail
 
           rm -rf "$KERNEL_DIR"
+
+          echo "=================================================="
+          echo "GTA9 KERNEL SOURCE"
+          echo "=================================================="
+
+          echo "Repository : $KERNEL_REPO"
+          echo "Branch     : $KERNEL_BRANCH"
+          echo "Defconfig  : $DEFCONFIG"
+          echo
 
           git clone \
             --depth=1 \
@@ -165,10 +168,12 @@ jobs:
 
           cd "$KERNEL_DIR"
 
-          git submodule sync --recursive || true
-          git submodule update --init --recursive --depth=1 || true
+          echo
+          echo "===== ACTUAL BRANCH ====="
+          git branch --show-current
 
-          echo "===== KERNEL COMMIT ====="
+          echo
+          echo "===== COMMIT ====="
           git rev-parse HEAD
 
           echo
@@ -176,20 +181,45 @@ jobs:
           make kernelversion || true
 
           echo
-          echo "===== DEFCONFIG ====="
-          test -f arch/arm64/configs/gta9_open_defconfig
-          ls -lh arch/arm64/configs/gta9_open_defconfig
+          echo "===== GTA9 CONFIG FILES ====="
+          find arch/arm64/configs \
+            -maxdepth 1 \
+            -type f \
+            \( \
+              -name 'gta9*' \
+              -o -name '*8781*' \
+            \) \
+            -printf '%f\n' \
+            | sort
 
-      # ============================================================
-      # 6. CACHE AND DOWNLOAD AOSP CLANG
-      # ============================================================
+          echo
+          echo "===== VERIFY DEFCONFIG ====="
+
+          test -f "arch/arm64/configs/$DEFCONFIG"
+
+          ls -lh "arch/arm64/configs/$DEFCONFIG"
+
+          echo
+          echo "DEFCONFIG OK: $DEFCONFIG"
+
+          echo
+          echo "===== SUBMODULES ====="
+
+          git submodule sync --recursive || true
+          git submodule update --init --recursive --depth=1 || true
+
+      # ==========================================================
+      # 6. CLANG CACHE
+      # ==========================================================
       - name: Cache Android Clang
-        id: cache-clang
         uses: actions/cache@v4
         with:
           path: ${{ env.WORKSPACE }}/prebuilts/clang/host/linux-x86/clang-${{ env.CLANG_VERSION }}
           key: gta9-clang-${{ env.CLANG_VERSION }}
 
+      # ==========================================================
+      # 7. SETUP CLANG
+      # ==========================================================
       - name: Setup Android Clang
         shell: bash
         run: |
@@ -198,9 +228,10 @@ jobs:
           CLANG_ROOT="$WORKSPACE/prebuilts/clang/host/linux-x86/clang-$CLANG_VERSION"
 
           if [ ! -x "$CLANG_ROOT/bin/clang" ]; then
-            echo "Clang cache miss - downloading AOSP clang $CLANG_VERSION"
+            echo "Clang cache miss."
 
             mkdir -p "$WORKSPACE/prebuilts/clang/host/linux-x86"
+            mkdir -p "$WORKSPACE/downloads"
 
             cd "$WORKSPACE/downloads"
 
@@ -222,16 +253,13 @@ jobs:
           echo "CLANG_PREBUILT_BIN=$CLANG_ROOT/bin" >> "$GITHUB_ENV"
           echo "$CLANG_ROOT/bin" >> "$GITHUB_PATH"
 
+          echo
           echo "===== CLANG ====="
           "$CLANG_ROOT/bin/clang" --version
 
-          echo
-          echo "===== LLVM ====="
-          "$CLANG_ROOT/bin/llvm-objdump" --version | head -n 3
-
-      # ============================================================
-      # 7. SETUP RESUKISU
-      # ============================================================
+      # ==========================================================
+      # 8. SETUP RESUKISU
+      # ==========================================================
       - name: Setup ReSukiSU
         shell: bash
         run: |
@@ -240,7 +268,7 @@ jobs:
           cd "$KERNEL_DIR"
 
           echo "=================================================="
-          echo "Setting up ReSukiSU"
+          echo "SETTING UP RESUKISU"
           echo "=================================================="
 
           curl -LSs \
@@ -256,23 +284,14 @@ jobs:
 
           test -d KernelSU
 
-          ls -la KernelSU
-          test -f KernelSU/kernel/Kconfig
+          find KernelSU \
+            -maxdepth 2 \
+            -type f \
+            | head -n 50
 
-          echo
-          echo "KernelSU/ReSukiSU integration detected."
-
-          echo
-          echo "===== KSU KCONFIG ====="
-          grep -R \
-            -E \
-            'config KSU|config KSU_MANUAL_HOOK|config KSU_SUSFS' \
-            KernelSU/kernel/Kconfig \
-            | head -n 50 || true
-
-      # ============================================================
-      # 8. SETUP SUSFS
-      # ============================================================
+      # ==========================================================
+      # 9. SETUP SUSFS
+      # ==========================================================
       - name: Setup SUSFS
         id: susfs
         shell: bash
@@ -281,12 +300,11 @@ jobs:
 
           cd "$KERNEL_DIR"
 
-          echo "=================================================="
-          echo "Setting up SUSFS"
-          echo "Branch: $SUSFS_BRANCH"
-          echo "=================================================="
-
           SUSFS_DIR="$WORKSPACE/susfs_src"
+
+          echo "=================================================="
+          echo "SETTING UP SUSFS"
+          echo "=================================================="
 
           rm -rf "$SUSFS_DIR"
 
@@ -296,91 +314,60 @@ jobs:
             https://gitlab.com/simonpunk/susfs4ksu.git \
             "$SUSFS_DIR"; then
 
-            echo "SUSFS repository/branch unavailable."
-            echo "Building ReSukiSU without SUSFS."
+            echo "SUSFS clone gagal."
+            echo "Melanjutkan build tanpa SUSFS."
             echo "SUSFS_ENABLED=false" >> "$GITHUB_ENV"
             exit 0
           fi
 
-          echo "SUSFS repository cloned."
+          echo "SUSFS repository berhasil di-clone."
 
-          # --------------------------------------------------------
-          # Copy SUSFS kernel source files
-          # --------------------------------------------------------
-          mkdir -p include/linux
-          mkdir -p fs
-
-          for f in \
-            "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" \
-            "$SUSFS_DIR/kernel_patches/include/linux/sus_su.h" \
-            "$SUSFS_DIR/kernel_patches/include/linux/susfs_def.h"
-          do
-            if [ -f "$f" ]; then
-              cp -vf "$f" include/linux/
-            fi
-          done
-
-          for f in \
-            "$SUSFS_DIR/kernel_patches/fs/susfs.c" \
-            "$SUSFS_DIR/kernel_patches/fs/sus_su.c"
-          do
-            if [ -f "$f" ]; then
-              cp -vf "$f" fs/
-            fi
-          done
-
-          # --------------------------------------------------------
-          # KernelSU patch
-          # --------------------------------------------------------
           KSU_PATCH="$SUSFS_DIR/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
 
           KERNEL_PATCH="$SUSFS_DIR/kernel_patches/50_add_susfs_in_${SUSFS_BRANCH}.patch"
 
-          if [ ! -f "$KERNEL_PATCH" ]; then
-            KERNEL_PATCH="$SUSFS_DIR/kernel_patches/50_add_susfs_in_kernel-${SUSFS_BRANCH}.patch"
-          fi
-
-          echo "KSU SUSFS patch:"
+          echo
+          echo "KSU patch:"
           echo "$KSU_PATCH"
 
           echo
-          echo "Kernel SUSFS patch:"
+          echo "Kernel patch:"
           echo "$KERNEL_PATCH"
 
           if [ ! -f "$KSU_PATCH" ]; then
-            echo "KernelSU SUSFS patch missing."
+            echo "KSU SUSFS patch tidak ditemukan."
             echo "SUSFS_ENABLED=false" >> "$GITHUB_ENV"
             exit 0
           fi
 
           if [ ! -f "$KERNEL_PATCH" ]; then
-            echo "Kernel SUSFS patch missing."
+            echo "Kernel SUSFS patch tidak ditemukan."
             echo "SUSFS_ENABLED=false" >> "$GITHUB_ENV"
             exit 0
           fi
 
-          # --------------------------------------------------------
-          # Apply KernelSU SUSFS patch
-          # --------------------------------------------------------
+          echo
+          echo "===== APPLY KSU SUSFS PATCH ====="
+
           cd "$KERNEL_DIR/KernelSU"
 
           if patch -p1 --forward < "$KSU_PATCH"; then
-            echo "KernelSU SUSFS patch applied."
+            echo "KSU SUSFS patch OK."
           else
-            echo "KernelSU SUSFS patch failed."
+            echo "KSU SUSFS patch gagal."
             echo "SUSFS_ENABLED=false" >> "$GITHUB_ENV"
             exit 0
           fi
 
-          # --------------------------------------------------------
-          # Apply kernel SUSFS patch
-          # --------------------------------------------------------
+          echo
+          echo "===== APPLY KERNEL SUSFS PATCH ====="
+
           cd "$KERNEL_DIR"
 
           if patch -p1 --forward < "$KERNEL_PATCH"; then
-            echo "Kernel SUSFS kernel patch applied."
+            echo "Kernel SUSFS patch OK."
           else
-            echo "Kernel SUSFS kernel patch failed."
+            echo "Kernel SUSFS patch gagal."
             echo "SUSFS_ENABLED=false" >> "$GITHUB_ENV"
             exit 0
           fi
@@ -388,46 +375,38 @@ jobs:
           echo "SUSFS_ENABLED=true" >> "$GITHUB_ENV"
 
           echo
-          echo "===== SUSFS INTEGRATION ====="
+          echo "SUSFS PATCH COMPLETE"
 
-          test -f "$KERNEL_DIR/fs/susfs.c"
-          test -f "$KERNEL_DIR/include/linux/susfs.h"
-
-          echo "SUSFS source files detected."
-          echo "SUSFS patching completed."
-
-      # ============================================================
-      # 9. MODIFY DEFCONFIG
-      # ============================================================
-      - name: Configure Kernel
+      # ==========================================================
+      # 10. CONFIGURE DEFCONFIG
+      # ==========================================================
+      - name: Configure GTA9 Kernel
         shell: bash
         run: |
           set -euxo pipefail
 
           cd "$KERNEL_DIR"
 
-          DEFCONFIG="arch/arm64/configs/gta9_open_defconfig"
+          DEFCONFIG_PATH="arch/arm64/configs/$DEFCONFIG"
 
-          cp "$DEFCONFIG" "${DEFCONFIG}.backup"
+          test -f "$DEFCONFIG_PATH"
+
+          cp "$DEFCONFIG_PATH" "${DEFCONFIG_PATH}.backup"
 
           echo "=================================================="
-          echo "Modifying GTA9 defconfig"
+          echo "MODIFY GTA9 DEFCONFIG"
           echo "=================================================="
 
-          # Helper:
-          # replace an existing =y/=m/=n entry if present;
-          # otherwise append the requested value.
           set_cfg() {
             local key="$1"
             local value="$2"
 
-            if grep -qE "^${key}=" "$DEFCONFIG"; then
-              sed -i -E "s/^${key}=.*/${key}=${value}/" "$DEFCONFIG"
-            elif grep -qE "^# ${key} is not set$" "$DEFCONFIG"; then
-              sed -i -E "s/^# ${key} is not set$/${key}=${value}/" "$DEFCONFIG"
-            else
-              echo "${key}=${value}" >> "$DEFCONFIG"
-            fi
+            sed -i \
+              -E \
+              "/^${key}=.*$/d;/^# ${key} is not set$/d" \
+              "$DEFCONFIG_PATH"
+
+            echo "${key}=${value}" >> "$DEFCONFIG_PATH"
           }
 
           unset_cfg() {
@@ -436,14 +415,12 @@ jobs:
             sed -i \
               -E \
               "/^${key}=.*$/d;/^# ${key} is not set$/d" \
-              "$DEFCONFIG"
+              "$DEFCONFIG_PATH"
 
-            echo "# ${key} is not set" >> "$DEFCONFIG"
+            echo "# ${key} is not set" >> "$DEFCONFIG_PATH"
           }
 
-          # --------------------------------------------------------
-          # Samsung security-related config from the existing build
-          # --------------------------------------------------------
+          # Samsung security restrictions
           unset_cfg CONFIG_SEC_RESTRICT_FORK
           unset_cfg CONFIG_SEC_RESTRICT_ROOTMOD
           unset_cfg CONFIG_SECURITY_DEFEX
@@ -452,57 +429,38 @@ jobs:
           unset_cfg CONFIG_SEC_KAP
           unset_cfg CONFIG_INTEGRITY_SAMSUNG
 
-          # --------------------------------------------------------
-          # SELinux development support
-          # --------------------------------------------------------
+          # SELinux development
           set_cfg CONFIG_SECURITY_SELINUX_DEVELOP y
 
-          # --------------------------------------------------------
           # Kernel features
-          # --------------------------------------------------------
           set_cfg CONFIG_KPROBES y
           set_cfg CONFIG_KPROBE_EVENTS y
           set_cfg CONFIG_OVERLAY_FS y
 
-          # HAVE_KPROBES is normally selected automatically by the
-          # architecture. Do not force it if this kernel does not
-          # define it as a user-visible config symbol.
-
-          # --------------------------------------------------------
           # ReSukiSU
-          # --------------------------------------------------------
           set_cfg CONFIG_KSU y
 
-          # For non-GKI/vendor Samsung kernels, manual hook is the
-          # compatibility path when the symbol exists.
           if grep -RqsE '^config KSU_MANUAL_HOOK' KernelSU/kernel; then
             set_cfg CONFIG_KSU_MANUAL_HOOK y
           fi
 
-          # --------------------------------------------------------
           # SUSFS
-          # --------------------------------------------------------
           if [ "${SUSFS_ENABLED:-false}" = "true" ]; then
             set_cfg CONFIG_KSU_SUSFS y
           fi
 
-          # Remove duplicated values which could have been created by
-          # older workflow versions.
-          awk '!seen[$0]++' "$DEFCONFIG" > "${DEFCONFIG}.clean"
-          mv "${DEFCONFIG}.clean" "$DEFCONFIG"
-
           echo
-          echo "===== IMPORTANT CONFIG ENTRIES ====="
+          echo "===== DEFCONFIG CHECK ====="
 
           grep -E \
             'CONFIG_(KSU|KSU_MANUAL_HOOK|KSU_SUSFS|SEC_RESTRICT_FORK|SEC_RESTRICT_ROOTMOD|SECURITY_DEFEX|TIMA|TIMA_LKMAUTH|SEC_KAP|INTEGRITY_SAMSUNG|SECURITY_SELINUX_DEVELOP|KPROBES|KPROBE_EVENTS|OVERLAY_FS)' \
-            "$DEFCONFIG" \
+            "$DEFCONFIG_PATH" \
             || true
 
-      # ============================================================
-      # 10. GENERATE FINAL .CONFIG
-      # ============================================================
-      - name: Generate Final Kernel Config
+      # ==========================================================
+      # 11. GENERATE FINAL .CONFIG
+      # ==========================================================
+      - name: Generate Final Config
         shell: bash
         run: |
           set -euxo pipefail
@@ -513,18 +471,16 @@ jobs:
           mkdir -p "$OUT_DIR"
 
           echo "=================================================="
-          echo "Running gta9_open_defconfig"
+          echo "RUN $DEFCONFIG"
           echo "=================================================="
 
           make \
             O="$OUT_DIR" \
             ARCH="$ARCH" \
-            gta9_open_defconfig
+            "$DEFCONFIG"
 
           echo
-          echo "=================================================="
-          echo "Running olddefconfig"
-          echo "=================================================="
+          echo "===== OLDDEFCONFIG ====="
 
           make \
             O="$OUT_DIR" \
@@ -534,40 +490,25 @@ jobs:
           test -f "$OUT_DIR/.config"
 
           echo
-          echo "===== FINAL .CONFIG CHECK ====="
+          echo "===== FINAL CONFIG ====="
 
           grep -E \
             'CONFIG_(KSU|KSU_MANUAL_HOOK|KSU_SUSFS|SEC_RESTRICT_FORK|SEC_RESTRICT_ROOTMOD|SECURITY_DEFEX|TIMA|TIMA_LKMAUTH|SEC_KAP|INTEGRITY_SAMSUNG|SECURITY_SELINUX_DEVELOP|KPROBES|KPROBE_EVENTS|OVERLAY_FS)' \
             "$OUT_DIR/.config" \
             || true
 
-          echo
-          echo "===== KSU CHECK ====="
-
-          if grep -q '^CONFIG_KSU=y$' "$OUT_DIR/.config"; then
-            echo "CONFIG_KSU=y : OK"
-          else
-            echo "ERROR: CONFIG_KSU=y tidak masuk .config"
+          if ! grep -q '^CONFIG_KSU=y$' "$OUT_DIR/.config"; then
+            echo "ERROR: CONFIG_KSU=y tidak aktif."
             exit 1
           fi
 
-          if [ "${SUSFS_ENABLED:-false}" = "true" ]; then
-            if grep -q '^CONFIG_KSU_SUSFS=y$' "$OUT_DIR/.config"; then
-              echo "CONFIG_KSU_SUSFS=y : OK"
-            else
-              echo "WARNING: SUSFS di-patch tapi CONFIG_KSU_SUSFS tidak aktif."
-              echo "SUSFS_ENABLED=false" >> "$GITHUB_ENV"
-            fi
-          fi
+          cp \
+            "$OUT_DIR/.config" \
+            "$GITHUB_WORKSPACE/output/gta9-final-config"
 
-          echo
-          echo "===== SAVING CONFIG ARTIFACT ====="
-
-          cp "$OUT_DIR/.config" "$GITHUB_WORKSPACE/output/gta9-final-config"
-
-      # ============================================================
-      # 11. BUILD KERNEL
-      # ============================================================
+      # ==========================================================
+      # 12. BUILD
+      # ==========================================================
       - name: Compile Kernel
         shell: bash
         run: |
@@ -580,20 +521,15 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
 
-          # LLVM toolchain
           export LLVM=1
           export LLVM_IAS=1
-
-          # Kernel build cache
-          export CC="ccache clang"
-          export HOSTCC="ccache gcc"
-          export HOSTCXX="ccache g++"
 
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
 
-          # Ensure ccache can find clang through PATH.
-          ccache --zero-stats || true
+          export CC="ccache clang"
+          export HOSTCC="ccache gcc"
+          export HOSTCXX="ccache g++"
 
           echo "=================================================="
           echo "TOOLCHAIN"
@@ -602,13 +538,12 @@ jobs:
           which clang
           which ld.lld
           which llvm-objcopy
-          which aarch64-linux-gnu-ld
 
           clang --version
 
           echo
           echo "=================================================="
-          echo "START KERNEL BUILD"
+          echo "BUILD KERNEL"
           echo "=================================================="
 
           make \
@@ -622,40 +557,28 @@ jobs:
             CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
 
           echo
-          echo "=================================================="
-          echo "CCACHE STATS"
-          echo "=================================================="
-
+          echo "===== CCACHE STATS ====="
           ccache --show-stats || true
 
-      # ============================================================
-      # 12. VERIFY KERNEL OUTPUT
-      # ============================================================
-      - name: Verify Kernel Output
+      # ==========================================================
+      # 13. VERIFY IMAGE
+      # ==========================================================
+      - name: Verify Kernel Image
         shell: bash
         run: |
           set -euxo pipefail
 
-          cd "$KERNEL_DIR"
-
           BOOT_DIR="$OUT_DIR/arch/arm64/boot"
 
-          echo "=================================================="
-          echo "BOOT OUTPUT"
-          echo "=================================================="
-
           test -d "$BOOT_DIR"
+
+          echo "===== BOOT OUTPUT ====="
 
           find "$BOOT_DIR" \
             -maxdepth 3 \
             -type f \
-            -printf '%p %k KB\n' \
+            -printf '%p\n' \
             | sort
-
-          echo
-          echo "=================================================="
-          echo "SEARCHING KERNEL IMAGE"
-          echo "=================================================="
 
           IMAGE=""
 
@@ -671,17 +594,14 @@ jobs:
           done
 
           if [ -z "$IMAGE" ]; then
-            echo "ERROR: Kernel Image tidak ditemukan."
+            echo "ERROR: Image kernel tidak ditemukan."
             exit 1
           fi
 
-          echo "KERNEL_IMAGE=$IMAGE" >> "$GITHUB_ENV"
-
           echo
-          echo "Kernel image:"
+          echo "FOUND:"
           ls -lh "$IMAGE"
 
-          # Copy canonical filenames for artifacts.
           case "$(basename "$IMAGE")" in
             Image.gz)
               cp "$IMAGE" "$GITHUB_WORKSPACE/output/Image.gz"
@@ -694,21 +614,19 @@ jobs:
               ;;
           esac
 
-      # ============================================================
-      # 13. COLLECT DTB / DTBO
-      # ============================================================
+      # ==========================================================
+      # 14. COLLECT DTB / DTBO
+      # ==========================================================
       - name: Collect DTB and DTBO
         shell: bash
         run: |
           set -euxo pipefail
 
-          cd "$KERNEL_DIR"
-
           mkdir -p "$GITHUB_WORKSPACE/output/dtb"
           mkdir -p "$GITHUB_WORKSPACE/output/dtbo"
 
           echo "=================================================="
-          echo "DTB SEARCH"
+          echo "SEARCH DTB / DTBO"
           echo "=================================================="
 
           find "$OUT_DIR" \
@@ -730,12 +648,16 @@ jobs:
             case "$file" in
               *.dtbo|*/dtbo.img)
                 DTBO_COUNT=$((DTBO_COUNT + 1))
-                cp -v "$file" \
+
+                cp -v \
+                  "$file" \
                   "$GITHUB_WORKSPACE/output/dtbo/$(basename "$file")"
                 ;;
               *)
                 DTB_COUNT=$((DTB_COUNT + 1))
-                cp -v "$file" \
+
+                cp -v \
+                  "$file" \
                   "$GITHUB_WORKSPACE/output/dtb/$(basename "$file")"
                 ;;
             esac
@@ -759,26 +681,15 @@ jobs:
           echo "DTB_COUNT=$DTB_COUNT" >> "$GITHUB_ENV"
           echo "DTBO_COUNT=$DTBO_COUNT" >> "$GITHUB_ENV"
 
-          # DTB missing is a hard failure for this build target.
           if [ "$DTB_COUNT" -eq 0 ]; then
-            echo "ERROR: Tidak ada DTB/dtb.img hasil build."
-            echo "Isi lengkap arch/arm64/boot:"
-            find "$OUT_DIR/arch/arm64/boot" -maxdepth 3 -type f -print
+            echo "ERROR: DTB tidak ditemukan."
             exit 1
           fi
 
-          # DTBO is useful to diagnose the current GTA9 problem,
-          # but absence is not necessarily a compiler failure.
-          if [ "$DTBO_COUNT" -eq 0 ]; then
-            echo
-            echo "WARNING: DTBO tidak ditemukan di output kernel."
-            echo "Workflow tetap melanjutkan packaging."
-          fi
-
-      # ============================================================
-      # 14. BUILD METADATA
-      # ============================================================
-      - name: Generate Build Metadata
+      # ==========================================================
+      # 15. BUILD INFO
+      # ==========================================================
+      - name: Generate Build Info
         shell: bash
         run: |
           set -euxo pipefail
@@ -791,6 +702,7 @@ jobs:
             echo "KERNEL_BRANCH=$KERNEL_BRANCH"
             echo "KERNEL_COMMIT=$(git rev-parse HEAD)"
             echo "KERNEL_VERSION=$(make kernelversion 2>/dev/null || true)"
+            echo "DEFCONFIG=$DEFCONFIG"
             echo "CLANG_VERSION=$CLANG_VERSION"
             echo "SUSFS_BRANCH=$SUSFS_BRANCH"
             echo "SUSFS_ENABLED=${SUSFS_ENABLED:-false}"
@@ -798,10 +710,10 @@ jobs:
             echo "DTBO_COUNT=${DTBO_COUNT:-0}"
           } | tee "$GITHUB_WORKSPACE/output/build-info.txt"
 
-      # ============================================================
-      # 15. PACKAGE RAW ARTIFACTS
-      # ============================================================
-      - name: Package Raw Kernel Artifacts
+      # ==========================================================
+      # 16. RAW PACKAGE
+      # ==========================================================
+      - name: Package Raw Kernel
         shell: bash
         run: |
           set -euxo pipefail
@@ -819,11 +731,9 @@ jobs:
             dtb \
             dtbo
 
-          ls -lh Galaxy-TabA9-ReSukiSU-Raw.zip
-
-      # ============================================================
-      # 16. CLONE ANYKERNEL3
-      # ============================================================
+      # ==========================================================
+      # 17. ANYKERNEL3
+      # ==========================================================
       - name: Prepare AnyKernel3
         shell: bash
         run: |
@@ -840,7 +750,6 @@ jobs:
 
           test -f AnyKernel3/anykernel.sh
 
-          # Copy kernel image.
           if [ -f "$GITHUB_WORKSPACE/output/Image.gz" ]; then
             cp "$GITHUB_WORKSPACE/output/Image.gz" AnyKernel3/Image.gz
           elif [ -f "$GITHUB_WORKSPACE/output/Image" ]; then
@@ -848,43 +757,35 @@ jobs:
           elif [ -f "$GITHUB_WORKSPACE/output/Image.lz4" ]; then
             cp "$GITHUB_WORKSPACE/output/Image.lz4" AnyKernel3/Image.lz4
           else
-            echo "ERROR: Kernel image tidak tersedia untuk AnyKernel3."
+            echo "ERROR: Image kernel tidak tersedia."
             exit 1
           fi
 
-          # Copy DTBs where useful for inspection.
           mkdir -p AnyKernel3/dtb
 
-          if [ -d "$GITHUB_WORKSPACE/output/dtb" ]; then
-            cp -av \
-              "$GITHUB_WORKSPACE/output/dtb/." \
-              AnyKernel3/dtb/ \
-              || true
-          fi
+          cp -av \
+            "$GITHUB_WORKSPACE/output/dtb/." \
+            AnyKernel3/dtb/ \
+            || true
 
-          # Keep device checking disabled for this generic package.
-          # This does NOT make the ZIP universally safe for every device;
-          # it only allows the package to be assembled without a stock
-          # Samsung device-name list.
           if grep -q 'do.devicecheck=' AnyKernel3/anykernel.sh; then
             sed -i \
               's/^do.devicecheck=.*/do.devicecheck=0/' \
               AnyKernel3/anykernel.sh
           fi
 
-          echo "AnyKernel3 prepared."
-
-      # ============================================================
-      # 17. PACKAGE ANYKERNEL3
-      # ============================================================
-      - name: Package AnyKernel3
+      # ==========================================================
+      # 18. PACKAGE ANYKERNEL3
+      # ==========================================================
+      - name: Package Flashable Kernel
         shell: bash
         run: |
           set -euxo pipefail
 
           cd "$GITHUB_WORKSPACE/AnyKernel3"
 
-          rm -f "$GITHUB_WORKSPACE/output/Galaxy-TabA9-ReSukiSU-Kernel.zip"
+          rm -f \
+            "$GITHUB_WORKSPACE/output/Galaxy-TabA9-ReSukiSU-Kernel.zip"
 
           zip -r9 \
             "$GITHUB_WORKSPACE/output/Galaxy-TabA9-ReSukiSU-Kernel.zip" \
@@ -892,12 +793,9 @@ jobs:
             -x '.git/*' \
             -x '.github/*'
 
-          ls -lh \
-            "$GITHUB_WORKSPACE/output/Galaxy-TabA9-ReSukiSU-Kernel.zip"
-
-      # ============================================================
-      # 18. SHA256
-      # ============================================================
+      # ==========================================================
+      # 19. SHA256
+      # ==========================================================
       - name: Generate SHA256
         shell: bash
         run: |
@@ -913,41 +811,9 @@ jobs:
 
           cat SHA256SUMS.txt
 
-      # ============================================================
-      # 19. FINAL SUMMARY
-      # ============================================================
-      - name: Final Build Summary
-        shell: bash
-        run: |
-          set -e
-
-          echo
-          echo "=================================================="
-          echo "              GTA9 BUILD SUMMARY"
-          echo "=================================================="
-
-          echo "Kernel branch : $KERNEL_BRANCH"
-          echo "Kernel commit : $(cd "$KERNEL_DIR" && git rev-parse HEAD)"
-          echo "Clang         : $CLANG_VERSION"
-          echo "SUSFS branch  : $SUSFS_BRANCH"
-          echo "SUSFS enabled : ${SUSFS_ENABLED:-false}"
-          echo "DTB count     : ${DTB_COUNT:-0}"
-          echo "DTBO count    : ${DTBO_COUNT:-0}"
-
-          echo
-          echo "Artifacts:"
-          find "$GITHUB_WORKSPACE/output" \
-            -maxdepth 2 \
-            -type f \
-            -printf '%p\n' \
-            | sort
-
-          echo
-          echo "BUILD SUCCESS"
-
-      # ============================================================
-      # 20. UPLOAD ARTIFACT
-      # ============================================================
+      # ==========================================================
+      # 20. UPLOAD
+      # ==========================================================
       - name: Upload Kernel Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -956,3 +822,4 @@ jobs:
             ${{ github.workspace }}/output/**
           if-no-files-found: error
           retention-days: 14
+```
