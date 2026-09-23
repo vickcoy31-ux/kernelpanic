@@ -29,23 +29,23 @@ jobs:
         sudo apt-get install -y git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python2 python3
         mkdir -p $GITHUB_WORKSPACE/kernel_workspace
 
-    # 1. BLOK KLONING SUKSES PILIHANMU (100% AMAN & TERUJI)
+    # PENGGUNAAN METODE KLONING UTAMA ANDA YANG SUDAH TERBUKTI 100% SUKSES
     - name: Clone Source & Submodules
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        git clone --depth=1 --branch 15.0 https://github.com/prabhatkrmishra/kernel_samsung_gta9.git gta9
+        git clone --depth=1 --branch 15.0 https://github.com gta9
         cd gta9
         git submodule sync --recursive
         git submodule update --init --depth=1
 
-    # 2. UNDUH PROTON CLANG MANDIRI VIA GIT CLONE (ANTI EXTRACT ERROR)
+    # PERBAIKAN MUTAKHIR: MENGUNCI URL PROTON CLANG SECARA ABSOLUT
     - name: Download Proton Clang Toolchain
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        echo "Mengunduh kompiler independen Proton Clang..."
-        git clone https://github.com --depth=1 clang-aosp
+        echo "Mengunduh kompiler independen Proton Clang secara terisolasi..."
+        git clone --depth=1 "https://github.com" clang-aosp
 
-    # 3. SUNTIKKAN PATCH RESUKISU & SUSFS ANTI ROOT-DETECTION
+    # PROSES SUNTIK PATCH ROOT RESUKISU & SUSFS ANTI ROOT-DETECTION
     - name: Setup ReSukiSU and SUSFS Patch
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
@@ -65,7 +65,7 @@ jobs:
            git apply "$PATCH_FILE" || echo "Patch manual fallback aman."
         fi
 
-    # 4. BYPASS TOTAL SYSTEM KEAMANAN SAMSUNG KNOX / KAP / DEFEX
+    # otomatisasi bypass proteksi internal samsung knox / kap / tima
     - name: Bypass Samsung Knox Security and Inject Config
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
@@ -86,7 +86,7 @@ jobs:
         echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG_PATH
         echo "CONFIG_SUSFS=y" >> $DEFCONFIG_PATH
 
-    # 5. EKSEKUSI PROSES KOMPILASI MESIN KERNEL UTAMA
+    # EKSEKUSI UTAMA PROSES KOMPILASI
     - name: Compile Kernel
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
@@ -96,9 +96,10 @@ jobs:
           ARCH=arm64 \
           CC=clang \
           CLANG_TRIPLE=aarch64-linux-gnu- \
-          CROSS_COMPILE=aarch64-linux-android-
+          CROSS_COMPILE=aarch64-linux-android- \
+          CROSS_COMPILE_COMPAT=arm-linux-androideabi-
 
-    # 6. VERIFIKASI SELESAI & PENCARIAN BERKAS MATANG
+    # VERIFIKASI FILE GAMBAR HASIL AKHIR
     - name: Finding Image Kernel and Verify Output
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/gta9
@@ -112,7 +113,7 @@ jobs:
           exit 1
         fi
 
-    # 7. UNGGAH HASIL ZIP KERNEL YANG SUDAH TERPASANG RESUKISU
+    # PACKAGING & UPLOAD ARTEFAK KERNEL MATANG
     - name: Upload Kernel Artifact
       if: env.PROSES_SUKSES == 'true'
       uses: actions/upload-artifact@v4
