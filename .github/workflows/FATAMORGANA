@@ -1,0 +1,1205 @@
+```yaml
+name: BuiKern S9Ta9
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: BuiKern S9Ta9 by ${{ github.actor }}
+    runs-on: ubuntu-22.04
+
+    env:
+      ARCH: arm64
+      SUBARCH: arm64
+
+      WORKSPACE: ${{ github.workspace }}/kernel_workspace
+      KERNEL_DIR: ${{ github.workspace }}/kernel_workspace/gta9
+      OUT_DIR: ${{ github.workspace }}/kernel_workspace/gta9/out
+
+      # ==========================================================
+      # GTA9 SOURCE
+      # ==========================================================
+      KERNEL_REPO: https://github.com/prabhatkrmishra/kernel_samsung_gta9.git
+
+      # Branch BENAR dari repository
+      KERNEL_BRANCH: "15.0"
+
+      # Defconfig BENAR dari branch 15.0
+      DEFCONFIG: "gta9_defconfig"
+
+      # ==========================================================
+      # TOOLCHAIN
+      # ==========================================================
+      CLANG_VERSION: "r416183b"
+
+      # ==========================================================
+      # SUSFS
+      # ==========================================================
+      SUSFS_BRANCH: "gki-android13-5.10"
+
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
+
+    steps:
+
+      # ==========================================================
+      # 01. CHECKOUT WORKFLOW REPOSITORY
+      # ==========================================================
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          clean: false
+          fetch-depth: 1
+
+      # ==========================================================
+      # 02. SWAP
+      # ==========================================================
+      - name: Set swap space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 12
+
+      # ==========================================================
+      # 03. HOST DEPENDENCIES
+      # ==========================================================
+      - name: Setup Build Environment
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          echo "BUILD_TIME=$(TZ=Asia/Jakarta date '+%Y%m%d%H%M')" >> "$GITHUB_ENV"
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            git \
+            curl \
+            wget \
+            ca-certificates \
+            ccache \
+            bc \
+            bison \
+            flex \
+            gawk \
+            gcc \
+            g++ \
+            make \
+            build-essential \
+            libssl-dev \
+            libelf-dev \
+            libdw-dev \
+            libncurses5-dev \
+            libncurses-dev \
+            libc6-dev-i386 \
+            lib32z1-dev \
+            lib32ncurses5-dev \
+            libxml2-utils \
+            xsltproc \
+            unzip \
+            zip \
+            rsync \
+            lz4 \
+            lzop \
+            zlib1g-dev \
+            device-tree-compiler \
+            python3 \
+            perl \
+            cpio \
+            dwarves \
+            pkg-config \
+            gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi
+
+          mkdir -p "$WORKSPACE"
+          mkdir -p "$WORKSPACE/downloads"
+          mkdir -p "$GITHUB_WORKSPACE/output"
+
+          echo
+          echo "=================================================="
+          echo "HOST"
+          echo "=================================================="
+
+          uname -a
+
+          echo
+          echo "=================================================="
+          echo "AARCH64 CROSS COMPILER"
+          echo "=================================================="
+
+          aarch64-linux-gnu-gcc --version | head -n 1
+
+      # ==========================================================
+      # 04. CCACHE CACHE
+      # ==========================================================
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: gta9-ccache-${{ runner.os }}-${{ env.KERNEL_BRANCH }}-${{ env.CLANG_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            gta9-ccache-${{ runner.os }}-${{ env.KERNEL_BRANCH }}-${{ env.CLANG_VERSION }}-
+            gta9-ccache-${{ runner.os }}-
+
+      # ==========================================================
+      # 05. CCACHE CONFIG
+      # ==========================================================
+      - name: Configure ccache
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p ~/.cache/ccache
+
+          ccache --set-config=max_size=5G
+          ccache --set-config=compression=true
+
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+
+          echo
+          echo "=================================================="
+          echo "CCACHE CONFIG"
+          echo "=================================================="
+
+          ccache --show-config
+          ccache --show-stats || true
+
+      # ==========================================================
+      # 06. CLONE GTA9 SOURCE
+      # ==========================================================
+      - name: Clone GTA9 Kernel Source
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          rm -rf "$KERNEL_DIR"
+
+          echo
+          echo "=================================================="
+          echo "GTA9 KERNEL SOURCE"
+          echo "=================================================="
+          echo "Repository : $KERNEL_REPO"
+          echo "Branch     : $KERNEL_BRANCH"
+          echo "Defconfig  : $DEFCONFIG"
+          echo
+
+          git clone \
+            --depth=1 \
+            --branch "$KERNEL_BRANCH" \
+            "$KERNEL_REPO" \
+            "$KERNEL_DIR"
+
+          cd "$KERNEL_DIR"
+
+          echo
+          echo "=================================================="
+          echo "BRANCH"
+          echo "=================================================="
+
+          git branch --show-current
+
+          echo
+          echo "=================================================="
+          echo "COMMIT"
+          echo "=================================================="
+
+          git rev-parse HEAD
+
+          echo
+          echo "=================================================="
+          echo "KERNEL VERSION"
+          echo "=================================================="
+
+          make kernelversion || true
+
+          echo
+          echo "=================================================="
+          echo "GTA9 CONFIG FILES"
+          echo "=================================================="
+
+          find arch/arm64/configs \
+            -maxdepth 1 \
+            -type f \
+            \( \
+              -name 'gta9*' \
+              -o -name '*8781*' \
+            \) \
+            -printf '%f\n' \
+            | sort
+
+          echo
+          echo "=================================================="
+          echo "VERIFY DEFCONFIG"
+          echo "=================================================="
+
+          test -f "arch/arm64/configs/$DEFCONFIG"
+
+          ls -lh "arch/arm64/configs/$DEFCONFIG"
+
+          echo
+          echo "DEFCONFIG FOUND:"
+          echo "$DEFCONFIG"
+
+      # ==========================================================
+      # 07. SHOW EXISTING KERNELSU SUBMODULE
+      # ==========================================================
+      - name: Prepare KernelSU Workspace
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$KERNEL_DIR"
+
+          echo
+          echo "=================================================="
+          echo "PREPARE KERNELSU FOR RESUKISU"
+          echo "=================================================="
+
+          # The GTA9 repository currently contains KernelSU as a
+          # gitlink/submodule. We intentionally remove that workspace
+          # copy so the official ReSukiSU setup script can install
+          # ReSukiSU into KernelSU/.
+          rm -rf KernelSU
+
+          echo "KernelSU workspace cleared."
+
+          echo
+          echo "Existing submodule definition:"
+          cat .gitmodules 2>/dev/null || true
+
+      # ==========================================================
+      # 08. CLANG CACHE
+      # ==========================================================
+      - name: Cache Android Clang
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.WORKSPACE }}/prebuilts/clang/host/linux-x86/clang-${{ env.CLANG_VERSION }}
+          key: gta9-clang-${{ env.CLANG_VERSION }}
+
+      # ==========================================================
+      # 09. SETUP AOSP CLANG
+      # ==========================================================
+      - name: Setup Android Clang
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          CLANG_ROOT="$WORKSPACE/prebuilts/clang/host/linux-x86/clang-$CLANG_VERSION"
+
+          echo
+          echo "=================================================="
+          echo "CLANG SETUP"
+          echo "=================================================="
+
+          if [ ! -x "$CLANG_ROOT/bin/clang" ]; then
+
+            echo "Clang cache miss."
+            echo "Downloading Android Clang $CLANG_VERSION"
+
+            mkdir -p "$WORKSPACE/prebuilts/clang/host/linux-x86"
+            mkdir -p "$WORKSPACE/downloads"
+
+            cd "$WORKSPACE/downloads"
+
+            rm -f "clang-${CLANG_VERSION}.tar.gz"
+
+            wget \
+              --show-progress \
+              "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-${CLANG_VERSION}.tar.gz" \
+              -O "clang-${CLANG_VERSION}.tar.gz"
+
+            mkdir -p "$CLANG_ROOT"
+
+            tar \
+              -xzf \
+              "clang-${CLANG_VERSION}.tar.gz" \
+              -C \
+              "$CLANG_ROOT"
+          else
+            echo "Using cached Clang."
+          fi
+
+          test -x "$CLANG_ROOT/bin/clang"
+
+          echo "CLANG_PREBUILT_BIN=$CLANG_ROOT/bin" >> "$GITHUB_ENV"
+
+          echo "$CLANG_ROOT/bin" >> "$GITHUB_PATH"
+
+          echo
+          echo "=================================================="
+          echo "CLANG VERSION"
+          echo "=================================================="
+
+          "$CLANG_ROOT/bin/clang" --version
+
+          echo
+          echo "=================================================="
+          echo "LLVM TOOLS"
+          echo "=================================================="
+
+          "$CLANG_ROOT/bin/ld.lld" --version | head -n 3
+          "$CLANG_ROOT/bin/llvm-objcopy" --version | head -n 3
+
+      # ==========================================================
+      # 10. SETUP RESUKISU
+      # ==========================================================
+      - name: Setup ReSukiSU
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$KERNEL_DIR"
+
+          echo
+          echo "=================================================="
+          echo "RESUKISU SETUP"
+          echo "=================================================="
+
+          curl -LSs \
+            "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" \
+            -o /tmp/resukisu_setup.sh
+
+          chmod +x /tmp/resukisu_setup.sh
+
+          bash /tmp/resukisu_setup.sh main
+
+          echo
+          echo "=================================================="
+          echo "VERIFY RESUKISU"
+          echo "=================================================="
+
+          test -d "$KERNEL_DIR/KernelSU"
+          test -d "$KERNEL_DIR/KernelSU/kernel"
+
+          test -L "$KERNEL_DIR/drivers/kernelsu"
+
+          echo
+          echo "KernelSU/ReSukiSU directory:"
+          ls -la "$KERNEL_DIR/KernelSU"
+
+          echo
+          echo "Kernel directory:"
+          ls -la "$KERNEL_DIR/KernelSU/kernel"
+
+          echo
+          echo "drivers/kernelsu:"
+          ls -la "$KERNEL_DIR/drivers/kernelsu"
+
+      # ==========================================================
+      # 11. SETUP SUSFS
+      # ==========================================================
+      - name: Setup SUSFS
+        id: susfs_setup
+        shell: bash
+        run: |
+          set -u
+
+          cd "$KERNEL_DIR"
+
+          SUSFS_DIR="$WORKSPACE/susfs_src"
+
+          echo
+          echo "=================================================="
+          echo "SUSFS SETUP"
+          echo "=================================================="
+          echo "Branch: $SUSFS_BRANCH"
+
+          rm -rf "$SUSFS_DIR"
+
+          if ! git clone \
+            --depth=1 \
+            --branch "$SUSFS_BRANCH" \
+            "https://gitlab.com/simonpunk/susfs4ksu.git" \
+            "$SUSFS_DIR"
+          then
+            echo
+            echo "WARNING: SUSFS clone gagal."
+            echo "Build akan dilanjutkan tanpa SUSFS."
+            echo "SUSFS_ENABLED=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo
+          echo "SUSFS repository cloned."
+
+          KSU_PATCH="$(find \
+            "$SUSFS_DIR/kernel_patches" \
+            -type f \
+            -path '*/KernelSU/10_enable_susfs_for_ksu.patch' \
+            -print \
+            -quit)"
+
+          KERNEL_PATCH="$(find \
+            "$SUSFS_DIR/kernel_patches" \
+            -type f \
+            -name '50_add_susfs_in_kernel*.patch' \
+            -print \
+            | grep "$SUSFS_BRANCH" \
+            | head -n 1 || true)"
+
+          if [ -z "$KERNEL_PATCH" ]; then
+            KERNEL_PATCH="$(find \
+              "$SUSFS_DIR/kernel_patches" \
+              -type f \
+              -name '50_add_susfs_in_*.patch' \
+              -print \
+              | grep "$SUSFS_BRANCH" \
+              | head -n 1 || true)"
+          fi
+
+          echo
+          echo "KSU PATCH:"
+          echo "${KSU_PATCH:-NOT FOUND}"
+
+          echo
+          echo "KERNEL PATCH:"
+          echo "${KERNEL_PATCH:-NOT FOUND}"
+
+          if [ -z "$KSU_PATCH" ]; then
+            echo
+            echo "WARNING: KernelSU SUSFS patch tidak ditemukan."
+            echo "Build dilanjutkan tanpa SUSFS."
+            echo "SUSFS_ENABLED=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          if [ -z "$KERNEL_PATCH" ]; then
+            echo
+            echo "WARNING: Kernel SUSFS patch tidak ditemukan."
+            echo "Build dilanjutkan tanpa SUSFS."
+            echo "SUSFS_ENABLED=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          # ------------------------------------------------------
+          # Copy SUSFS source files
+          # ------------------------------------------------------
+
+          echo
+          echo "=================================================="
+          echo "COPY SUSFS SOURCE"
+          echo "=================================================="
+
+          if [ -d "$SUSFS_DIR/kernel_patches/fs" ]; then
+            find "$SUSFS_DIR/kernel_patches/fs" \
+              -maxdepth 1 \
+              -type f \
+              -exec cp -vf {} "$KERNEL_DIR/fs/" \;
+          fi
+
+          if [ -d "$SUSFS_DIR/kernel_patches/include/linux" ]; then
+            find "$SUSFS_DIR/kernel_patches/include/linux" \
+              -maxdepth 1 \
+              -type f \
+              \( \
+                -name 'susfs*.h' \
+                -o -name 'sus_su*.h' \
+              \) \
+              -exec cp -vf {} "$KERNEL_DIR/include/linux/" \;
+          fi
+
+          # ------------------------------------------------------
+          # Test KernelSU patch first
+          # ------------------------------------------------------
+
+          echo
+          echo "=================================================="
+          echo "CHECK KSU SUSFS PATCH"
+          echo "=================================================="
+
+          cd "$KERNEL_DIR/KernelSU"
+
+          if ! git apply --check "$KSU_PATCH"; then
+            echo
+            echo "WARNING: KSU SUSFS patch does not cleanly apply."
+            echo "Build will continue without SUSFS."
+            echo "SUSFS_ENABLED=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          git apply "$KSU_PATCH"
+
+          echo "KSU SUSFS patch applied."
+
+          # ------------------------------------------------------
+          # Test kernel patch
+          # ------------------------------------------------------
+
+          echo
+          echo "=================================================="
+          echo "CHECK KERNEL SUSFS PATCH"
+          echo "=================================================="
+
+          cd "$KERNEL_DIR"
+
+          if ! git apply --check "$KERNEL_PATCH"; then
+            echo
+            echo "WARNING: Kernel SUSFS patch does not cleanly apply."
+            echo "Build will continue without SUSFS."
+
+            # Revert only the SUSFS patch on KernelSU.
+            cd "$KERNEL_DIR/KernelSU"
+            git reset --hard HEAD
+
+            echo "SUSFS_ENABLED=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          git apply "$KERNEL_PATCH"
+
+          echo
+          echo "=================================================="
+          echo "SUSFS PATCH SUCCESS"
+          echo "=================================================="
+
+          echo "SUSFS_ENABLED=true" >> "$GITHUB_ENV"
+
+          cd "$KERNEL_DIR"
+
+          test -f fs/susfs.c || true
+
+          find include/linux \
+            -maxdepth 1 \
+            -type f \
+            -name 'susfs*.h' \
+            -print || true
+
+      # ==========================================================
+      # 12. GENERATE BASE DEFCONFIG
+      # ==========================================================
+      - name: Generate Base Config
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$KERNEL_DIR"
+
+          rm -rf "$OUT_DIR"
+
+          mkdir -p "$OUT_DIR"
+
+          echo
+          echo "=================================================="
+          echo "GENERATING BASE CONFIG"
+          echo "=================================================="
+
+          make \
+            O="$OUT_DIR" \
+            ARCH="$ARCH" \
+            "$DEFCONFIG"
+
+          test -f "$OUT_DIR/.config"
+
+      # ==========================================================
+      # 13. MODIFY FINAL CONFIG
+      # ==========================================================
+      - name: Configure ReSukiSU Kernel
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$KERNEL_DIR"
+
+          CONFIG="$OUT_DIR/.config"
+
+          test -f "$CONFIG"
+
+          echo
+          echo "=================================================="
+          echo "CONFIGURE KERNEL"
+          echo "=================================================="
+
+          # ------------------------------------------------------
+          # Helper functions
+          # ------------------------------------------------------
+
+          cfg_enable() {
+            local key="$1"
+
+            "$KERNEL_DIR/scripts/config" \
+              --file "$CONFIG" \
+              --enable "$key"
+          }
+
+          cfg_disable() {
+            local key="$1"
+
+            "$KERNEL_DIR/scripts/config" \
+              --file "$CONFIG" \
+              --disable "$key"
+          }
+
+          # ------------------------------------------------------
+          # ReSukiSU
+          # ------------------------------------------------------
+
+          cfg_enable CONFIG_KSU
+
+          # ------------------------------------------------------
+          # Samsung security-related restrictions
+          # ------------------------------------------------------
+
+          cfg_disable CONFIG_SEC_RESTRICT_FORK
+          cfg_disable CONFIG_SEC_RESTRICT_ROOTMOD
+          cfg_disable CONFIG_SECURITY_DEFEX
+          cfg_disable CONFIG_TIMA
+          cfg_disable CONFIG_TIMA_LKMAUTH
+          cfg_disable CONFIG_SEC_KAP
+          cfg_disable CONFIG_INTEGRITY_SAMSUNG
+
+          # ------------------------------------------------------
+          # SELinux development
+          # ------------------------------------------------------
+
+          cfg_enable CONFIG_SECURITY_SELINUX_DEVELOP
+
+          # ------------------------------------------------------
+          # Kprobe / overlay
+          # ------------------------------------------------------
+
+          cfg_enable CONFIG_KPROBES
+          cfg_enable CONFIG_KPROBE_EVENTS
+          cfg_enable CONFIG_OVERLAY_FS
+
+          # ------------------------------------------------------
+          # SUSFS
+          # ------------------------------------------------------
+
+          if [ "${SUSFS_ENABLED:-false}" = "true" ]; then
+
+            if grep -Rqs \
+              -E \
+              'config KSU_SUSFS' \
+              "$KERNEL_DIR/KernelSU/kernel"
+            then
+              cfg_enable CONFIG_KSU_SUSFS
+            fi
+
+          fi
+
+          echo
+          echo "=================================================="
+          echo "RUN OLDDEFCONFIG"
+          echo "=================================================="
+
+          make \
+            O="$OUT_DIR" \
+            ARCH="$ARCH" \
+            olddefconfig
+
+          echo
+          echo "=================================================="
+          echo "FINAL CONFIG CHECK"
+          echo "=================================================="
+
+          grep -E \
+            'CONFIG_(KSU|KSU_SUSFS|SEC_RESTRICT_FORK|SEC_RESTRICT_ROOTMOD|SECURITY_DEFEX|TIMA|TIMA_LKMAUTH|SEC_KAP|INTEGRITY_SAMSUNG|SECURITY_SELINUX_DEVELOP|KPROBES|KPROBE_EVENTS|OVERLAY_FS)=' \
+            "$CONFIG" \
+            || true
+
+          echo
+          echo "=================================================="
+          echo "MANDATORY CHECKS"
+          echo "=================================================="
+
+          if grep -q '^CONFIG_KSU=y$' "$CONFIG"; then
+            echo "CONFIG_KSU=y : OK"
+          else
+            echo "ERROR: CONFIG_KSU=y tidak aktif."
+            exit 1
+          fi
+
+          # ------------------------------------------------------
+          # Verify Samsung security symbols actually became disabled
+          # ------------------------------------------------------
+
+          for symbol in \
+            CONFIG_SEC_RESTRICT_FORK \
+            CONFIG_SEC_RESTRICT_ROOTMOD \
+            CONFIG_SECURITY_DEFEX \
+            CONFIG_TIMA \
+            CONFIG_TIMA_LKMAUTH \
+            CONFIG_SEC_KAP \
+            CONFIG_INTEGRITY_SAMSUNG
+          do
+            if grep -q "^${symbol}=y$" "$CONFIG"; then
+              echo "ERROR: $symbol masih aktif."
+              exit 1
+            fi
+          done
+
+          echo "Samsung security restriction checks: OK"
+
+          # ------------------------------------------------------
+          # Verify SUSFS
+          # ------------------------------------------------------
+
+          if [ "${SUSFS_ENABLED:-false}" = "true" ]; then
+            if grep -q '^CONFIG_KSU_SUSFS=y$' "$CONFIG"; then
+              echo "CONFIG_KSU_SUSFS=y : OK"
+            else
+              echo "WARNING: SUSFS patch applied but CONFIG_KSU_SUSFS is not active."
+              echo "Disabling SUSFS flag for build."
+              echo "SUSFS_ENABLED=false" >> "$GITHUB_ENV"
+            fi
+          fi
+
+          cp \
+            "$CONFIG" \
+            "$GITHUB_WORKSPACE/output/gta9-final-config"
+
+      # ==========================================================
+      # 14. COMPILE KERNEL
+      # ==========================================================
+      - name: Compile Kernel
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$KERNEL_DIR"
+
+          export PATH="$CLANG_PREBUILT_BIN:$PATH"
+
+          export ARCH=arm64
+          export SUBARCH=arm64
+
+          export LLVM=1
+          export LLVM_IAS=1
+
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+
+          export CC="ccache clang"
+          export HOSTCC="ccache gcc"
+          export HOSTCXX="ccache g++"
+
+          echo
+          echo "=================================================="
+          echo "TOOLCHAIN"
+          echo "=================================================="
+
+          which clang
+          which ld.lld
+          which llvm-objcopy
+          which aarch64-linux-gnu-gcc
+
+          clang --version
+
+          echo
+          echo "=================================================="
+          echo "BUILD KERNEL"
+          echo "=================================================="
+
+          make \
+            -Otarget \
+            -j"$(nproc --all)" \
+            O="$OUT_DIR" \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+
+          echo
+          echo "=================================================="
+          echo "CCACHE STATS"
+          echo "=================================================="
+
+          ccache --show-stats || true
+
+      # ==========================================================
+      # 15. EXPLICIT Image.gz / DTB BUILD
+      # ==========================================================
+      - name: Ensure Kernel Image and DTB
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$KERNEL_DIR"
+
+          echo
+          echo "=================================================="
+          echo "ENSURE IMAGE.GZ + DTB"
+          echo "=================================================="
+
+          make \
+            -Otarget \
+            -j"$(nproc --all)" \
+            O="$OUT_DIR" \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+            Image.gz \
+            dtbs || true
+
+          echo
+          echo "Boot directory:"
+          find "$OUT_DIR/arch/arm64/boot" \
+            -maxdepth 3 \
+            -type f \
+            -printf '%p\n' \
+            | sort
+
+      # ==========================================================
+      # 16. VERIFY KERNEL IMAGE
+      # ==========================================================
+      - name: Verify Kernel Image
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          BOOT_DIR="$OUT_DIR/arch/arm64/boot"
+
+          test -d "$BOOT_DIR"
+
+          echo
+          echo "=================================================="
+          echo "SEARCH KERNEL IMAGE"
+          echo "=================================================="
+
+          IMAGE=""
+
+          for candidate in \
+            "$BOOT_DIR/Image.gz" \
+            "$BOOT_DIR/Image" \
+            "$BOOT_DIR/Image.lz4"
+          do
+            if [ -f "$candidate" ]; then
+              IMAGE="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$IMAGE" ]; then
+            echo
+            echo "ERROR: Kernel Image tidak ditemukan."
+
+            echo
+            echo "FULL BOOT OUTPUT:"
+            find "$BOOT_DIR" \
+              -maxdepth 4 \
+              -type f \
+              -print \
+              | sort
+
+            exit 1
+          fi
+
+          echo
+          echo "KERNEL IMAGE:"
+          ls -lh "$IMAGE"
+
+          case "$(basename "$IMAGE")" in
+            Image.gz)
+              cp "$IMAGE" "$GITHUB_WORKSPACE/output/Image.gz"
+              ;;
+            Image)
+              cp "$IMAGE" "$GITHUB_WORKSPACE/output/Image"
+              ;;
+            Image.lz4)
+              cp "$IMAGE" "$GITHUB_WORKSPACE/output/Image.lz4"
+              ;;
+          esac
+
+      # ==========================================================
+      # 17. COLLECT DTB / DTBO
+      # ==========================================================
+      - name: Collect DTB and DTBO
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p "$GITHUB_WORKSPACE/output/dtb"
+          mkdir -p "$GITHUB_WORKSPACE/output/dtbo"
+
+          echo
+          echo "=================================================="
+          echo "SEARCH DTB / DTBO"
+          echo "=================================================="
+
+          find "$OUT_DIR" \
+            -type f \
+            \( \
+              -name '*.dtb' \
+              -o -name 'dtb.img' \
+              -o -name '*.dtbo' \
+              -o -name 'dtbo.img' \
+            \) \
+            -print \
+            | sort \
+            | tee "$GITHUB_WORKSPACE/output/dtb-list.txt"
+
+          DTB_COUNT=0
+          DTBO_COUNT=0
+
+          while IFS= read -r file; do
+
+            case "$file" in
+
+              *.dtbo|*/dtbo.img)
+                DTBO_COUNT=$((DTBO_COUNT + 1))
+
+                cp -vf \
+                  "$file" \
+                  "$GITHUB_WORKSPACE/output/dtbo/$(basename "$file")"
+                ;;
+
+              *)
+                DTB_COUNT=$((DTB_COUNT + 1))
+
+                cp -vf \
+                  "$file" \
+                  "$GITHUB_WORKSPACE/output/dtb/$(basename "$file")"
+                ;;
+
+            esac
+
+          done < <(
+            find "$OUT_DIR" \
+              -type f \
+              \( \
+                -name '*.dtb' \
+                -o -name 'dtb.img' \
+                -o -name '*.dtbo' \
+                -o -name 'dtbo.img' \
+              \) \
+              -print \
+              | sort
+          )
+
+          echo
+          echo "DTB_COUNT=$DTB_COUNT"
+          echo "DTBO_COUNT=$DTBO_COUNT"
+
+          echo "DTB_COUNT=$DTB_COUNT" >> "$GITHUB_ENV"
+          echo "DTBO_COUNT=$DTBO_COUNT" >> "$GITHUB_ENV"
+
+          # GTA9 build must at least produce a DTB.
+          if [ "$DTB_COUNT" -eq 0 ]; then
+            echo
+            echo "ERROR: Tidak ada DTB hasil build."
+            exit 1
+          fi
+
+          if [ "$DTBO_COUNT" -eq 0 ]; then
+            echo
+            echo "WARNING: DTBO tidak ditemukan."
+            echo "Build tetap dianggap valid pada tahap ini."
+          fi
+
+      # ==========================================================
+      # 18. GENERATE BUILD INFO
+      # ==========================================================
+      - name: Generate Build Information
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$KERNEL_DIR"
+
+          {
+            echo "=================================================="
+            echo "BuiKern S9Ta9"
+            echo "=================================================="
+            echo
+            echo "BUILD_TIME=$BUILD_TIME"
+            echo "KERNEL_REPO=$KERNEL_REPO"
+            echo "KERNEL_BRANCH=$KERNEL_BRANCH"
+            echo "KERNEL_COMMIT=$(git rev-parse HEAD)"
+            echo "KERNEL_VERSION=$(make kernelversion 2>/dev/null || true)"
+            echo "DEFCONFIG=$DEFCONFIG"
+            echo "CLANG_VERSION=$CLANG_VERSION"
+            echo "SUSFS_BRANCH=$SUSFS_BRANCH"
+            echo "SUSFS_ENABLED=${SUSFS_ENABLED:-false}"
+            echo "DTB_COUNT=${DTB_COUNT:-0}"
+            echo "DTBO_COUNT=${DTBO_COUNT:-0}"
+          } | tee "$GITHUB_WORKSPACE/output/build-info.txt"
+
+      # ==========================================================
+      # 19. RAW PACKAGE
+      # ==========================================================
+      - name: Package Raw Kernel
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$GITHUB_WORKSPACE/output"
+
+          rm -f Galaxy-TabA9-BuiKern-S9Ta9-Raw.zip
+
+          zip -r9 \
+            Galaxy-TabA9-BuiKern-S9Ta9-Raw.zip \
+            Image* \
+            gta9-final-config \
+            build-info.txt \
+            dtb-list.txt \
+            dtb \
+            dtbo
+
+          ls -lh \
+            Galaxy-TabA9-BuiKern-S9Ta9-Raw.zip
+
+      # ==========================================================
+      # 20. ANYKERNEL3
+      # ==========================================================
+      - name: Prepare AnyKernel3
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$GITHUB_WORKSPACE"
+
+          rm -rf AnyKernel3
+
+          git clone \
+            --depth=1 \
+            https://github.com/osm0sis/AnyKernel3.git \
+            AnyKernel3
+
+          test -f AnyKernel3/anykernel.sh
+
+          echo
+          echo "=================================================="
+          echo "COPY KERNEL IMAGE TO ANYKERNEL3"
+          echo "=================================================="
+
+          if [ -f "$GITHUB_WORKSPACE/output/Image.gz" ]; then
+
+            cp \
+              "$GITHUB_WORKSPACE/output/Image.gz" \
+              AnyKernel3/Image.gz
+
+          elif [ -f "$GITHUB_WORKSPACE/output/Image" ]; then
+
+            cp \
+              "$GITHUB_WORKSPACE/output/Image" \
+              AnyKernel3/Image
+
+          elif [ -f "$GITHUB_WORKSPACE/output/Image.lz4" ]; then
+
+            cp \
+              "$GITHUB_WORKSPACE/output/Image.lz4" \
+              AnyKernel3/Image.lz4
+
+          else
+
+            echo "ERROR: Kernel Image tidak tersedia."
+            exit 1
+
+          fi
+
+          mkdir -p AnyKernel3/dtb
+
+          if [ -d "$GITHUB_WORKSPACE/output/dtb" ]; then
+            cp -av \
+              "$GITHUB_WORKSPACE/output/dtb/." \
+              AnyKernel3/dtb/ \
+              || true
+          fi
+
+          # Disable generic device check for packaging.
+          # This only affects package-side checking.
+          if grep -q 'do.devicecheck=' AnyKernel3/anykernel.sh; then
+            sed -i \
+              's/^do.devicecheck=.*/do.devicecheck=0/' \
+              AnyKernel3/anykernel.sh
+          fi
+
+      # ==========================================================
+      # 21. ANYKERNEL3 ZIP
+      # ==========================================================
+      - name: Package AnyKernel3
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$GITHUB_WORKSPACE/AnyKernel3"
+
+          rm -f \
+            "$GITHUB_WORKSPACE/output/Galaxy-TabA9-BuiKern-S9Ta9-Kernel.zip"
+
+          zip -r9 \
+            "$GITHUB_WORKSPACE/output/Galaxy-TabA9-BuiKern-S9Ta9-Kernel.zip" \
+            . \
+            -x '.git/*' \
+            -x '.github/*'
+
+          ls -lh \
+            "$GITHUB_WORKSPACE/output/Galaxy-TabA9-BuiKern-S9Ta9-Kernel.zip"
+
+      # ==========================================================
+      # 22. SHA256
+      # ==========================================================
+      - name: Generate SHA256
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$GITHUB_WORKSPACE/output"
+
+          sha256sum \
+            Image* \
+            Galaxy-TabA9-BuiKern-S9Ta9-Raw.zip \
+            Galaxy-TabA9-BuiKern-S9Ta9-Kernel.zip \
+            > SHA256SUMS.txt
+
+          echo
+          echo "=================================================="
+          echo "SHA256"
+          echo "=================================================="
+
+          cat SHA256SUMS.txt
+
+      # ==========================================================
+      # 23. FINAL SUMMARY
+      # ==========================================================
+      - name: Final Build Summary
+        shell: bash
+        run: |
+          set -e
+
+          echo
+          echo "=================================================="
+          echo "              BuiKern S9Ta9"
+          echo "=================================================="
+
+          echo "Kernel branch : $KERNEL_BRANCH"
+          echo "Kernel commit : $(cd "$KERNEL_DIR" && git rev-parse HEAD)"
+          echo "Kernel config : $DEFCONFIG"
+          echo "Clang         : $CLANG_VERSION"
+          echo "SUSFS branch  : $SUSFS_BRANCH"
+          echo "SUSFS enabled : ${SUSFS_ENABLED:-false}"
+          echo "DTB count     : ${DTB_COUNT:-0}"
+          echo "DTBO count    : ${DTBO_COUNT:-0}"
+
+          echo
+          echo "=================================================="
+          echo "ARTIFACTS"
+          echo "=================================================="
+
+          find "$GITHUB_WORKSPACE/output" \
+            -maxdepth 2 \
+            -type f \
+            -printf '%p\n' \
+            | sort
+
+          echo
+          echo "=================================================="
+          echo "BUILD SUCCESS"
+          echo "=================================================="
+
+      # ==========================================================
+      # 24. UPLOAD ARTIFACTS
+      # ==========================================================
+      - name: Upload Kernel Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: BuiKern-S9Ta9
+          path: |
+            ${{ github.workspace }}/output/**
+          if-no-files-found: error
+          retention-days: 14
+```
